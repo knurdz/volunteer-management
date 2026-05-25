@@ -1,7 +1,6 @@
 export const APP_NAME = "Volunteer Management";
 export const ORGANIZATION_NAME = "IEEE Student Branch University of Moratuwa";
 export const UOM_EMAIL_DOMAIN = "uom.lk";
-export const UOM_INDEX_REGEX = /^\d{6}[A-Z]$/;
 
 export const EVENT_STATUSES = [
   "DRAFT",
@@ -12,7 +11,11 @@ export const EVENT_STATUSES = [
   "CLOSED",
 ] as const;
 
-export const EVENT_ROLES = ["Chair", "Vice Chair", "Lead", "Member"] as const;
+export const SB_ROLES = ["ExCom", "SB Lead", "SB Member"] as const;
+
+export const EVENT_ROLES = ["Chair", "Co Chair", "Event Member"] as const;
+
+export const SCORING_ROLES = ["Chair", "Vice Chair", "Lead", "Member"] as const;
 
 export const ROLE_BASE_POINTS = {
   Chair: 60,
@@ -23,8 +26,4 @@ export const ROLE_BASE_POINTS = {
 
 export function isUomEmail(email: string) {
   return email.toLowerCase().endsWith(`@${UOM_EMAIL_DOMAIN}`);
-}
-
-export function isValidUomIndex(indexNumber: string) {
-  return UOM_INDEX_REGEX.test(indexNumber.trim());
 }

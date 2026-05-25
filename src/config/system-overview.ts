@@ -3,7 +3,6 @@ import {
   Bell,
   CalendarDays,
   ClipboardList,
-  FileText,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -11,45 +10,40 @@ import {
 export const systemModules = [
   {
     title: "Volunteer Records",
-    description: "Profiles, academic details, skills, and verified experience.",
+    description: "Profiles, skills, UoM verification, and volunteer history.",
     icon: Users,
   },
   {
-    title: "Event Operations",
-    description: "Lifecycle control, committees, applications, and reporting.",
+    title: "Internal Event Records",
+    description: "Event records, event roles, participation, and summaries.",
     icon: CalendarDays,
   },
   {
-    title: "Application Forms",
-    description: "Internal forms with Google Forms fallback where needed.",
+    title: "External Form Links",
+    description: "Integration boundary for the form builder handled separately.",
     icon: ClipboardList,
   },
   {
     title: "Recognition",
-    description: "Grading, points, monthly rankings, and term hall of fame.",
+    description: "Lifetime points with monthly and yearly best selections.",
     icon: Award,
   },
   {
     title: "Governance",
-    description: "RBAC, approvals, overrides, disputes, and audit trails.",
+    description: "Single Admin, assigned privileges, overrides, and audit trails.",
     icon: ShieldCheck,
   },
   {
     title: "Notifications",
-    description: "In-app alerts with an email provider adapter.",
+    description: "Integration boundary for the external email service.",
     icon: Bell,
-  },
-  {
-    title: "Exports",
-    description: "PDF outputs for volunteer profiles and conclusion reports.",
-    icon: FileText,
   },
 ] as const;
 
 export const foundationItems = [
-  "Formal admin interface baseline",
-  "Shared design tokens",
-  "Reusable UI primitives",
-  "Appwrite integration boundary",
-  "Documentation for build patterns",
+  "Internal volunteer management scope",
+  "Minimal UI for backend testing first",
+  "Single Admin privilege model",
+  "External form and email integration boundaries",
+  "Lifetime points with period-based recognition",
 ] as const;

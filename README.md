@@ -1,7 +1,7 @@
 # Volunteer Management
 
 Single-repo Next.js project for the IEEE Student Branch University of Moratuwa
-Volunteer & Event Management System.
+Volunteer Management System.
 
 ## Stack
 
@@ -12,9 +12,22 @@ Volunteer & Event Management System.
 
 ## Current Status
 
-This repo is in foundation mode. The UI theme, repository structure, and
-engineering guidelines are prepared, but product features are intentionally not
-implemented yet.
+This repo is at Sprint 0 foundation status. Product features are intentionally
+not implemented yet.
+
+The revised product scope is internal volunteer management:
+
+- Google login for accounts.
+- `@uom.lk` email verification before a user can volunteer.
+- One true Admin account that manages all other privileges.
+- Student Branch roles: ExCom, SB Lead, SB Member.
+- Event roles: Chair, Co Chair, Event Member.
+- No university index number validation.
+- No in-house form builder.
+- No in-house email sender.
+- No public event discovery module.
+- Lifetime volunteer points, with monthly/yearly best selections based on points
+  earned during those periods.
 
 ## Setup
 

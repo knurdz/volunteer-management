@@ -10,19 +10,25 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { foundationItems, systemModules } from "@/config/system-overview";
-import { EVENT_ROLES, EVENT_STATUSES } from "@/lib/config";
+import {
+  EVENT_ROLES,
+  EVENT_STATUSES,
+  SB_ROLES,
+  SCORING_ROLES,
+} from "@/lib/config";
 
 export default function Home() {
   return (
     <AppShell>
       <div className="space-y-6">
         <PageHeader
-          eyebrow="Project preparation"
-          title="Admin system foundation"
-          description="The repository is organized for a formal volunteer management product. No feature workflow is implemented on this screen."
+          eyebrow="Sprint 0"
+          title="Volunteer management foundation"
+          description="The repo is aligned to the revised internal volunteer management scope. This page stays minimal so backend features can be tested before final UI polish."
           actions={
             <>
-              <Badge tone="primary">@uom.lk only</Badge>
+              <Badge tone="primary">Google login</Badge>
+              <Badge>@uom.lk verification for volunteers</Badge>
               <Badge>Appwrite Cloud</Badge>
             </>
           }
@@ -33,7 +39,7 @@ export default function Home() {
             <CardHeader>
               <CardTitle>Baseline Decisions</CardTitle>
               <CardDescription>
-                Stable choices that future feature work should follow.
+                Stable choices to follow before Developer 1 starts feature work.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -55,12 +61,26 @@ export default function Home() {
             <CardHeader>
               <CardTitle>Domain Guardrails</CardTitle>
               <CardDescription>
-                Constants are prepared only as reference values for future work.
+                Reference-only constants for the first backend implementation.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div>
-                <p className="text-sm font-semibold text-text-primary">Event lifecycle</p>
+                <p className="text-sm font-semibold text-text-primary">
+                  Student Branch roles
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {SB_ROLES.map((role) => (
+                    <Badge key={role} tone="primary">
+                      {role}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-text-primary">
+                  Event lifecycle
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {EVENT_STATUSES.map((status) => (
                     <Badge key={status}>{status}</Badge>
@@ -68,12 +88,24 @@ export default function Home() {
                 </div>
               </div>
               <div>
-                <p className="text-sm font-semibold text-text-primary">Committee roles</p>
+                <p className="text-sm font-semibold text-text-primary">
+                  Event roles
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {EVENT_ROLES.map((role) => (
                     <Badge key={role} tone="primary">
                       {role}
                     </Badge>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-text-primary">
+                  Scoring basis from SRS
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {SCORING_ROLES.map((role) => (
+                    <Badge key={role}>{role}</Badge>
                   ))}
                 </div>
               </div>
