@@ -10,6 +10,12 @@ Volunteer & Event Management System.
 - Tailwind CSS
 - Appwrite Cloud: Auth, TablesDB, Storage, Realtime, Functions, Sites
 
+## Current Status
+
+This repo is in foundation mode. The UI theme, repository structure, and
+engineering guidelines are prepared, but product features are intentionally not
+implemented yet.
+
 ## Setup
 
 Copy `.env.example` to `.env.local` and fill the Appwrite project values before

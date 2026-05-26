@@ -1,126 +1,119 @@
-import { ArrowRight, CheckCircle2, LockKeyhole, Sparkles } from "lucide-react";
-import { systemModules } from "@/features/project-scope";
+import { CheckCircle2 } from "lucide-react";
+import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
+import { Badge } from "@/components/ui/badge";
 import {
-  APP_NAME,
-  EVENT_ROLES,
-  EVENT_STATUSES,
-  ORGANIZATION_NAME,
-} from "@/lib/config";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { foundationItems, systemModules } from "@/config/system-overview";
+import { EVENT_ROLES, EVENT_STATUSES } from "@/lib/config";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[#f7f8fb] text-[#172033]">
-      <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-6 sm:px-8 lg:px-10">
-        <nav className="flex flex-col gap-4 border-b border-[#d7dde8] pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-[#596477]">
-              {ORGANIZATION_NAME}
-            </p>
-            <h1 className="text-2xl font-semibold tracking-normal sm:text-3xl">
-              {APP_NAME}
-            </h1>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-2 rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm font-medium text-[#344054]">
-              <LockKeyhole className="size-4" />
-              @uom.lk only
-            </span>
-            <span className="inline-flex items-center gap-2 rounded-md border border-[#a9c4ff] bg-[#eaf1ff] px-3 py-2 text-sm font-medium text-[#184a9c]">
-              <Sparkles className="size-4" />
-              Appwrite ready
-            </span>
-          </div>
-        </nav>
+    <AppShell>
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Project preparation"
+          title="Admin system foundation"
+          description="The repository is organized for a formal volunteer management product. No feature workflow is implemented on this screen."
+          actions={
+            <>
+              <Badge tone="primary">@uom.lk only</Badge>
+              <Badge>Appwrite Cloud</Badge>
+            </>
+          }
+        />
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-lg border border-[#d7dde8] bg-white p-6 shadow-sm sm:p-8">
-            <div className="max-w-2xl">
-              <p className="text-sm font-semibold uppercase tracking-normal text-[#1f6feb]">
-                Foundation
-              </p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-normal sm:text-5xl">
-                Full product setup for volunteer, event, and reward operations.
-              </h2>
-              <p className="mt-5 max-w-xl text-base leading-7 text-[#596477]">
-                The repo is prepared as a single Next.js project with Appwrite
-                Cloud integration points, strict UoM auth assumptions, and the
-                core domain constants from the approved scope.
-              </p>
-            </div>
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              {["Next.js", "TypeScript", "Appwrite"].map((item) => (
-                <div
-                  key={item}
-                  className="flex items-center gap-2 rounded-md bg-[#eef2f7] px-3 py-3 text-sm font-medium"
-                >
-                  <CheckCircle2 className="size-4 text-[#0f7b45]" />
-                  {item}
-                </div>
-              ))}
-            </div>
-          </section>
+          <Card>
+            <CardHeader>
+              <CardTitle>Baseline Decisions</CardTitle>
+              <CardDescription>
+                Stable choices that future feature work should follow.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {foundationItems.map((item) => (
+                  <div
+                    key={item}
+                    className="flex min-h-12 items-center gap-3 rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm font-medium text-text-primary"
+                  >
+                    <CheckCircle2 className="size-4 shrink-0 text-success" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
 
-          <section className="rounded-lg border border-[#d7dde8] bg-[#172033] p-6 text-white shadow-sm sm:p-8">
-            <h2 className="text-xl font-semibold">Workflow Guardrails</h2>
-            <div className="mt-5 space-y-5">
+          <Card>
+            <CardHeader>
+              <CardTitle>Domain Guardrails</CardTitle>
+              <CardDescription>
+                Constants are prepared only as reference values for future work.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
               <div>
-                <p className="text-sm font-medium text-[#b7c3d7]">
-                  Event lifecycle
-                </p>
+                <p className="text-sm font-semibold text-text-primary">Event lifecycle</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {EVENT_STATUSES.map((status) => (
-                    <span
-                      key={status}
-                      className="rounded-md border border-white/15 bg-white/10 px-2.5 py-1.5 text-xs font-medium"
-                    >
-                      {status}
-                    </span>
+                    <Badge key={status}>{status}</Badge>
                   ))}
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-[#b7c3d7]">
-                  Committee roles
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
+                <p className="text-sm font-semibold text-text-primary">Committee roles</p>
+                <div className="mt-3 flex flex-wrap gap-2">
                   {EVENT_ROLES.map((role) => (
-                    <span
-                      key={role}
-                      className="rounded-md bg-white px-3 py-2 text-sm font-medium text-[#172033]"
-                    >
+                    <Badge key={role} tone="primary">
                       {role}
-                    </span>
+                    </Badge>
                   ))}
                 </div>
               </div>
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         </div>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {systemModules.map((module) => {
-            const Icon = module.icon;
+        <Card>
+          <CardHeader>
+            <CardTitle>Planned System Areas</CardTitle>
+            <CardDescription>
+              These are navigation-ready categories, not implemented features.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {systemModules.map((module) => {
+                const Icon = module.icon;
 
-            return (
-              <article
-                key={module.title}
-                className="rounded-lg border border-[#d7dde8] bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex size-10 items-center justify-center rounded-md bg-[#eaf1ff] text-[#1f6feb]">
-                    <Icon className="size-5" />
-                  </div>
-                  <ArrowRight className="size-5 text-[#96a2b6]" />
-                </div>
-                <h3 className="mt-5 text-lg font-semibold">{module.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-[#596477]">
-                  {module.description}
-                </p>
-              </article>
-            );
-          })}
-        </section>
-      </section>
-    </main>
+                return (
+                  <article
+                    key={module.title}
+                    className="rounded-lg border border-border bg-surface-subtle p-4"
+                  >
+                    <div className="flex size-10 items-center justify-center rounded-md border border-border bg-surface text-primary">
+                      <Icon className="size-5" />
+                    </div>
+                    <h3 className="mt-4 text-base font-semibold text-text-primary">
+                      {module.title}
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-text-secondary">
+                      {module.description}
+                    </p>
+                  </article>
+                );
+              })}
+            </section>
+          </CardContent>
+        </Card>
+      </div>
+    </AppShell>
   );
 }
