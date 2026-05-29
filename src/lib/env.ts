@@ -1,14 +1,44 @@
 import { z } from "zod";
 
+const optionalEmail = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().email().optional(),
+);
+
+const optionalNumber = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.coerce.number().int().positive().optional(),
+);
+
+const optionalString = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().optional(),
+);
+
+const optionalBooleanString = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z
+    .enum(["true", "false"])
+    .optional()
+    .transform((option) => option === "true"),
+);
+
 const serverEnvSchema = z.object({
   NEXT_PUBLIC_APPWRITE_ENDPOINT: z.string().url(),
   NEXT_PUBLIC_APPWRITE_PROJECT_ID: z.string().min(1),
   NEXT_PUBLIC_APPWRITE_DATABASE_ID: z.string().min(1),
   NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID: z.string().min(1),
   APPWRITE_API_KEY: z.string().min(1),
-  INITIAL_ADMIN_EMAILS: z.string().default(""),
-  KNURDZ_EMAIL_API_URL: z.string().url().optional().or(z.literal("")),
-  KNURDZ_EMAIL_API_KEY: z.string().optional(),
+  ADMIN_EMAIL: z.string().email(),
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  SMTP_HOST: optionalString,
+  SMTP_PORT: optionalNumber,
+  SMTP_SECURE: optionalBooleanString,
+  SMTP_USER: optionalString,
+  SMTP_PASSWORD: optionalString,
+  SMTP_FROM_EMAIL: optionalEmail,
+  SMTP_FROM_NAME: optionalString,
   OPTIONAL_AI_API_KEY: z.string().optional(),
 });
 

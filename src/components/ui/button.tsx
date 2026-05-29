@@ -11,6 +11,20 @@ const variantClasses: Record<ButtonVariant, string> = {
     "border-transparent bg-transparent text-text-secondary hover:bg-surface-muted hover:text-text-primary",
 };
 
+export function buttonClasses({
+  className,
+  variant = "secondary",
+}: {
+  className?: string;
+  variant?: ButtonVariant;
+} = {}) {
+  return cn(
+    "inline-flex h-10 items-center justify-center gap-2 rounded-md border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
+    variantClasses[variant],
+    className,
+  );
+}
+
 export function Button({
   children,
   className,
@@ -23,11 +37,7 @@ export function Button({
 >) {
   return (
     <button
-      className={cn(
-        "inline-flex h-10 items-center justify-center gap-2 rounded-md border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
-        variantClasses[variant],
-        className,
-      )}
+      className={buttonClasses({ className, variant })}
       {...props}
     >
       {children}
