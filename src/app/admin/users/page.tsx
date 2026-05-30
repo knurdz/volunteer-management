@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft, UsersRound } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { buttonClasses } from "@/components/ui/button";
@@ -30,22 +31,26 @@ export default async function AdminUsersPage() {
   const users = await listAdminUsers();
 
   return (
-    <AppShell>
+    <AppShell active="users" user={currentUser}>
       <div className="space-y-6">
         <PageHeader
-          title="Admin users"
-          description="Minimal UI for checking profile bootstrap and SB role assignment."
+          title="Users & Roles"
+          description="Review registered profiles and manage Student Branch privileges."
           actions={
             <Link className={buttonClasses()} href="/dashboard">
-              Back to dashboard
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Back to Overview
             </Link>
           }
         />
         <Card>
           <CardHeader>
-            <CardTitle>Profiles and roles</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <UsersRound className="size-4 text-primary" aria-hidden="true" />
+              Profile Directory
+            </CardTitle>
             <CardDescription>
-              The single Admin controls all Student Branch privileges.
+              The configured Admin account is the only source of role changes.
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  CheckCircle2,
+  MailCheck,
+  ShieldCheck,
+  UserRound,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { buttonClasses } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -23,51 +31,90 @@ export default async function DashboardPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell active="dashboard" user={user}>
       <div className="space-y-6">
         <PageHeader
-          title="Developer 1 test dashboard"
-          description="Minimal UI for checking auth, UoM verification, Admin status, and SB roles."
+          title="Access Overview"
+          description="Account identity, verification state, and Student Branch privileges."
           actions={
             <>
-              <Link className={buttonClasses()} href="/verify-uom">
-                Verify UoM Email
+              <Link
+                className={buttonClasses({
+                  variant: user.profile.uomVerified ? "secondary" : "primary",
+                })}
+                href="/verify-uom"
+              >
+                <MailCheck className="size-4" aria-hidden="true" />
+                {user.profile.uomVerified ? "View Verification" : "Verify UoM Email"}
               </Link>
               {user.isAdmin ? (
                 <Link
-                  className={buttonClasses({ variant: "primary" })}
+                  className={buttonClasses()}
                   href="/admin/users"
                 >
-                  Admin Users
+                  <UsersRound className="size-4" aria-hidden="true" />
+                  Users & Roles
                 </Link>
               ) : null}
-              <form action="/api/auth/logout" method="post">
-                <Button type="submit" variant="ghost">
-                  Logout
-                </Button>
-              </form>
             </>
           }
         />
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <section className="grid gap-4 md:grid-cols-3">
+          <StatusCard
+            description={user.profile.uomEmail ?? "Verification required before volunteering"}
+            icon={MailCheck}
+            label="UoM Email"
+            state={user.profile.uomVerified ? "Verified" : "Pending"}
+            tone={user.profile.uomVerified ? "success" : "warning"}
+            value={user.profile.uomVerified ? "Ready" : "Action required"}
+          />
+          <StatusCard
+            description={user.isAdmin ? "Global administration access" : "Standard account"}
+            icon={ShieldCheck}
+            label="Admin Status"
+            state={user.isAdmin ? "Enabled" : "Standard"}
+            tone={user.isAdmin ? "success" : "neutral"}
+            value={user.isAdmin ? "Administrator" : "Not Admin"}
+          />
+          <StatusCard
+            description={
+              user.sbRoles.length > 0
+                ? user.sbRoles.join(", ")
+                : "No Student Branch roles assigned"
+            }
+            icon={UsersRound}
+            label="SB Roles"
+            state={user.sbRoles.length > 0 ? "Assigned" : "None"}
+            tone={user.sbRoles.length > 0 ? "primary" : "neutral"}
+            value={String(user.sbRoles.length)}
+          />
+        </section>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
           <Card>
             <CardHeader>
-              <CardTitle>Current Account</CardTitle>
-              <CardDescription>Appwrite auth and profile bootstrap status.</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <UserRound className="size-4 text-primary" aria-hidden="true" />
+                Account Details
+              </CardTitle>
+              <CardDescription>Google identity and platform profile status.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <InfoRow label="User ID" value={user.authUser.id} />
-              <InfoRow label="Google email" value={user.authUser.email} />
               <InfoRow label="Name" value={user.authUser.name || "Not provided"} />
+              <InfoRow label="Google email" value={user.authUser.email} />
+              <InfoRow label="User ID" value={user.authUser.id} />
               <InfoRow label="Profile status" value={user.profile.status} />
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Access State</CardTitle>
-              <CardDescription>Server-side guard inputs for future features.</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle2 className="size-4 text-primary" aria-hidden="true" />
+                Access State
+              </CardTitle>
+              <CardDescription>Current server-side authorization state.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -101,6 +148,42 @@ export default async function DashboardPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function StatusCard({
+  description,
+  icon: Icon,
+  label,
+  state,
+  tone,
+  value,
+}: {
+  description: string;
+  icon: LucideIcon;
+  label: string;
+  state: string;
+  tone: "neutral" | "primary" | "success" | "warning";
+  value: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface-subtle text-primary">
+          <Icon className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-secondary">{label}</p>
+          <div className="mt-1 flex items-center gap-2">
+            <p className="text-xl font-semibold text-text-primary">{value}</p>
+            <Badge tone={tone}>{state}</Badge>
+          </div>
+          <p className="mt-1 break-words text-sm leading-5 text-text-secondary">
+            {description}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

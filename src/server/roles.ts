@@ -96,7 +96,6 @@ export async function assignSbRole({
         active: true,
         assignedAt,
         assignedBy: actorUserId,
-        revokedAt: "",
       },
     );
   } catch (error) {
@@ -112,7 +111,6 @@ export async function assignSbRole({
         active: true,
         assignedAt,
         assignedBy: actorUserId,
-        revokedAt: "",
         role,
         userId,
       },

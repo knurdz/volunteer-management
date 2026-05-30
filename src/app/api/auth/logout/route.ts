@@ -1,8 +1,25 @@
 import { NextResponse } from "next/server";
+import { APPWRITE_SESSION_COOKIE } from "@/lib/appwrite/constants";
 import { getAppwriteSessionServices } from "@/server/appwrite";
-import { clearSessionSecret, getSessionSecret } from "@/server/session";
+import { getSessionSecret } from "@/server/session";
+
+const clearCookieOptions = {
+  httpOnly: true,
+  maxAge: 0,
+  path: "/",
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+};
+
+export async function GET(request: Request) {
+  return logout(request);
+}
 
 export async function POST(request: Request) {
+  return logout(request);
+}
+
+async function logout(request: Request) {
   const sessionSecret = await getSessionSecret();
 
   if (sessionSecret) {
@@ -14,6 +31,8 @@ export async function POST(request: Request) {
     }
   }
 
-  await clearSessionSecret();
-  return NextResponse.redirect(new URL("/login", new URL(request.url).origin), 303);
+  const response = NextResponse.redirect(new URL("/login", new URL(request.url).origin), 303);
+  response.cookies.set(APPWRITE_SESSION_COOKIE, "", clearCookieOptions);
+
+  return response;
 }
