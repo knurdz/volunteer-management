@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/server/auth/current-user";
-import { jsonError } from "@/server/errors";
-import { confirmUomVerification } from "@/server/uom-verification/service";
+import { requireAuth } from "@/features/access-control/server/current-user";
+import { jsonError, routeErrorStatus } from "@/server/errors";
+import { confirmUomVerification } from "@/features/access-control/server/uom-verification";
 
 const confirmSchema = z.object({
   code: z.string().min(4).max(12),
@@ -21,6 +21,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ profile });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Verification confirmation failed.");
+    return jsonError(
+      error instanceof Error ? error.message : "Verification confirmation failed.",
+      routeErrorStatus(error),
+    );
   }
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  CalendarDays,
   CheckCircle2,
   MailCheck,
   ShieldCheck,
@@ -19,7 +20,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getCurrentUser } from "@/server/auth/current-user";
+import { getCurrentUser } from "@/features/access-control/server/current-user";
+import { getEventRoleDisplayName } from "@/features/access-control/lib/rules";
 
 export const dynamic = "force-dynamic";
 
@@ -53,14 +55,14 @@ export default async function DashboardPage() {
                   href="/admin/users"
                 >
                   <UsersRound className="size-4" aria-hidden="true" />
-                  Users & Roles
+                  Access Control
                 </Link>
               ) : null}
             </>
           }
         />
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatusCard
             description={user.profile.uomEmail ?? "Verification required before volunteering"}
             icon={MailCheck}
@@ -88,6 +90,20 @@ export default async function DashboardPage() {
             state={user.sbRoles.length > 0 ? "Assigned" : "None"}
             tone={user.sbRoles.length > 0 ? "primary" : "neutral"}
             value={String(user.sbRoles.length)}
+          />
+          <StatusCard
+            description={
+              user.eventRoles.length > 0
+                ? `${user.eventRoles.length} active event assignment${
+                    user.eventRoles.length === 1 ? "" : "s"
+                  }`
+                : "No event responsibilities assigned"
+            }
+            icon={CalendarDays}
+            label="Event Roles"
+            state={user.eventRoles.length > 0 ? "Assigned" : "None"}
+            tone={user.eventRoles.length > 0 ? "primary" : "neutral"}
+            value={String(user.eventRoles.length)}
           />
         </section>
 
@@ -146,6 +162,65 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarDays className="size-4 text-primary" aria-hidden="true" />
+              Event Responsibilities
+            </CardTitle>
+            <CardDescription>
+              Active event-scoped roles assigned by the Admin account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {user.eventRoles.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-[720px] divide-y divide-border text-left text-sm">
+                  <thead className="text-text-secondary">
+                    <tr>
+                      <th className="py-2 pr-4 font-semibold">Event</th>
+                      <th className="px-4 py-2 font-semibold">Role</th>
+                      <th className="px-4 py-2 font-semibold">Committee</th>
+                      <th className="px-4 py-2 font-semibold">Assigned</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {user.eventRoles.map((assignment) => (
+                      <tr key={assignment.$id}>
+                        <td className="py-3 pr-4">
+                          <p className="font-medium text-text-primary">
+                            {assignment.eventTitle}
+                          </p>
+                          <p className="mt-1 text-xs text-text-muted">
+                            {assignment.eventId}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge tone="primary">
+                            {getEventRoleDisplayName(assignment.role, {
+                              chairCount: assignment.eventChairCount ?? 0,
+                            })}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-text-secondary">
+                          {assignment.committeeName ?? "Event-level"}
+                        </td>
+                        <td className="px-4 py-3 text-text-secondary">
+                          {new Date(assignment.assignedAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-text-secondary">
+                No event responsibilities are currently assigned to this account.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AppShell>
   );

@@ -45,7 +45,7 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-const { Client, Databases, TablesDB, TablesDBIndexType } = await import("node-appwrite");
+const { Client, Databases, Query, TablesDB, TablesDBIndexType } = await import("node-appwrite");
 
 const databaseId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID;
 const client = new Client()
@@ -55,6 +55,13 @@ const client = new Client()
 
 const databases = new Databases(client);
 const tables = new TablesDB(client);
+const eventRoleElements = [
+  "Chair",
+  "Vice Chair",
+  "Committee Lead",
+  "Committee Member",
+];
+const legacyEventRoleElements = ["Lead", "OC Member"];
 
 const tableDefinitions = [
   {
@@ -111,6 +118,27 @@ const tableDefinitions = [
     ],
   },
   {
+    id: "event_role_assignments",
+    name: "Event Role Assignments",
+    columns: [
+      ["string", "userId", 64, true],
+      ["string", "eventId", 128, true],
+      ["string", "eventTitle", 160, true],
+      ["string", "committeeName", 120, false],
+      ["enum", "role", eventRoleElements, true],
+      ["string", "assignedBy", 64, true],
+      ["datetime", "assignedAt", true],
+      ["datetime", "revokedAt", false],
+      ["boolean", "active", false, true],
+    ],
+    indexes: [
+      ["event_roles_user_idx", ["userId"]],
+      ["event_roles_event_idx", ["eventId"]],
+      ["event_roles_role_idx", ["role"]],
+      ["event_roles_active_idx", ["active"]],
+    ],
+  },
+  {
     id: "audit_logs",
     name: "Audit Logs",
     columns: [
@@ -161,6 +189,42 @@ async function createColumn(tableId, column) {
   const [kind, key, ...rest] = column;
   const label = `${tableId}.${key}`;
 
+  if (kind === "enum") {
+    const [elements, required, defaultValue] = rest;
+    const existingElements =
+      tableId === "event_role_assignments" && key === "role"
+        ? [...new Set([...elements, ...legacyEventRoleElements])]
+        : elements;
+
+    try {
+      await tables.createEnumColumn(
+        databaseId,
+        tableId,
+        key,
+        elements,
+        required,
+        defaultValue,
+      );
+      console.log(`created column ${label}`);
+    } catch (error) {
+      if (error?.code !== 409) {
+        throw error;
+      }
+
+      await tables.updateEnumColumn(
+        databaseId,
+        tableId,
+        key,
+        existingElements,
+        required,
+        defaultValue ?? null,
+      );
+      console.log(`updated column ${label}`);
+    }
+
+    return;
+  }
+
   await ignoreAlreadyExists(async () => {
     if (kind === "string") {
       const [size, required] = rest;
@@ -195,19 +259,6 @@ async function createColumn(tableId, column) {
         required,
         undefined,
         undefined,
-        defaultValue,
-      );
-      return;
-    }
-
-    if (kind === "enum") {
-      const [elements, required, defaultValue] = rest;
-      await tables.createEnumColumn(
-        databaseId,
-        tableId,
-        key,
-        elements,
-        required,
         defaultValue,
       );
       return;
@@ -259,6 +310,53 @@ async function main() {
       );
     }
   }
+
+  await migrateEventRoleNames();
+}
+
+async function migrateEventRoleNames() {
+  await tables.updateEnumColumn(
+    databaseId,
+    "event_role_assignments",
+    "role",
+    [...new Set([...eventRoleElements, ...legacyEventRoleElements])],
+    true,
+    null,
+  );
+  await waitForColumns("event_role_assignments");
+
+  const migrations = [
+    ["Lead", "Committee Lead"],
+    ["OC Member", "Committee Member"],
+  ];
+
+  for (const [fromRole, toRole] of migrations) {
+    const result = await tables.listRows(
+      databaseId,
+      "event_role_assignments",
+      [Query.equal("role", fromRole), Query.limit(500)],
+      undefined,
+      false,
+    );
+
+    for (const row of result.rows) {
+      await tables.updateRow(databaseId, "event_role_assignments", row.$id, {
+        role: toRole,
+      });
+      console.log(`migrated event role ${row.$id}: ${fromRole} -> ${toRole}`);
+    }
+  }
+
+  await tables.updateEnumColumn(
+    databaseId,
+    "event_role_assignments",
+    "role",
+    eventRoleElements,
+    true,
+    null,
+  );
+  await waitForColumns("event_role_assignments");
+  console.log("updated event role enum to canonical values");
 }
 
 main().catch((error) => {

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/server/auth/current-user";
+import { getCurrentUser } from "@/features/access-control/server/current-user";
 
 export const dynamic = "force-dynamic";
 

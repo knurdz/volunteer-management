@@ -12,8 +12,8 @@ Volunteer Management System.
 
 ## Current Status
 
-This repo is at Sprint 0 foundation status. Product features are intentionally
-not implemented yet.
+Feature 1 is implemented: authentication, UoM verification, single Admin access,
+Student Branch roles, event-scoped responsibilities, and audit logging.
 
 The revised product scope is internal volunteer management:
 
@@ -21,10 +21,10 @@ The revised product scope is internal volunteer management:
 - `@uom.lk` email verification before a user can volunteer.
 - One true Admin account that manages all other privileges.
 - Student Branch roles: ExCom, SB Lead, SB Member.
-- Event roles: Chair, Co Chair, Event Member.
+- Event roles: Chair, Vice Chair, Committee Lead, Committee Member.
 - No university index number validation.
 - No in-house form builder.
-- No in-house email sender.
+- SMTP-based UoM verification email sender.
 - No public event discovery module.
 - Lifetime volunteer points, with monthly/yearly best selections based on points
   earned during those periods.
@@ -81,5 +81,5 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 - `npm run typecheck` - TypeScript validation
 - `npm run check` - lint and typecheck
 - `npm run test` - unit tests
-- `npm run setup:appwrite` - create/reuse Developer 1 Appwrite tables
+- `npm run setup:appwrite` - create/reuse Appwrite tables
 - `npm run setup:appwrite:oauth` - configure Appwrite Google OAuth provider

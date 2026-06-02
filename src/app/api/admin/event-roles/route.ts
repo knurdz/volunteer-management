@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { listAdminUsers } from "@/features/access-control/server/admin-users";
 import { requireAdmin } from "@/features/access-control/server/current-user";
 import { jsonError } from "@/server/errors";
+import { listActiveEventRoleAssignments } from "@/features/access-control/server/roles";
 
 export async function GET() {
   try {
     await requireAdmin();
-    const users = await listAdminUsers();
+    const assignments = await listActiveEventRoleAssignments();
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ assignments });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Admin access failed.", 403);
   }

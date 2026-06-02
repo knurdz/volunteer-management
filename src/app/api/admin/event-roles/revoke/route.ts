@@ -2,27 +2,25 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/features/access-control/server/current-user";
 import { jsonError, routeErrorStatus } from "@/server/errors";
-import { parseSbRole, revokeSbRole } from "@/features/access-control/server/roles";
+import { revokeEventRole } from "@/features/access-control/server/roles";
 
-const roleSchema = z.object({
-  role: z.string(),
-  userId: z.string().min(1),
+const revokeSchema = z.object({
+  assignmentId: z.string().min(1),
 });
 
 export async function POST(request: Request) {
   try {
     const admin = await requireAdmin();
-    const body = roleSchema.parse(await request.json());
-    const assignment = await revokeSbRole({
+    const body = revokeSchema.parse(await request.json());
+    const assignment = await revokeEventRole({
       actorUserId: admin.authUser.id,
-      role: parseSbRole(body.role),
-      userId: body.userId,
+      assignmentId: body.assignmentId,
     });
 
     return NextResponse.json({ assignment });
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Role revoke failed.",
+      error instanceof Error ? error.message : "Event role revoke failed.",
       routeErrorStatus(error),
     );
   }

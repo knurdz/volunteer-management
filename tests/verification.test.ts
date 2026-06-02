@@ -4,7 +4,7 @@ import {
   createVerificationExpiry,
   hasAttemptsRemaining,
   isVerificationExpired,
-} from "../src/lib/auth/verification";
+} from "../src/features/access-control/lib/verification";
 
 describe("verification rules", () => {
   it("hashes code inputs deterministically", () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAppwriteSessionServices } from "@/server/appwrite";
-import { createSessionFromOAuthToken } from "@/server/auth/oauth";
-import { bootstrapProfile } from "@/server/profiles";
+import { createSessionFromOAuthToken } from "@/features/access-control/server/oauth";
+import { bootstrapProfile } from "@/features/access-control/server/profiles";
 import { clearSessionSecret, setSessionSecret } from "@/server/session";
 
 export async function GET(request: Request) {

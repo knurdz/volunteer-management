@@ -2,9 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Building2, LogIn, ShieldCheck } from "lucide-react";
 import { buttonClasses } from "@/components/ui/button";
-import { getLoginErrorMessage } from "@/lib/auth/login-error";
+import { getLoginErrorMessage } from "@/features/access-control/lib/login-error";
 import { APP_NAME, ORGANIZATION_NAME } from "@/lib/config";
-import { getCurrentUser } from "@/server/auth/current-user";
+import { getCurrentUser } from "@/features/access-control/server/current-user";
 
 export const dynamic = "force-dynamic";
 

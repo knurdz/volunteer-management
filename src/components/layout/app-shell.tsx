@@ -2,7 +2,7 @@ import Link from "next/link";
 import { LayoutDashboard, LogOut, MailCheck, ShieldCheck, UsersRound } from "lucide-react";
 import { APP_NAME, ORGANIZATION_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
-import type { SessionUser } from "@/types/auth";
+import type { SessionUser } from "@/features/access-control/types";
 
 export function AppShell({
   active,
@@ -32,7 +32,7 @@ export function AppShell({
             href: "/admin/users",
             icon: UsersRound,
             id: "users",
-            label: "Users & Roles",
+            label: "Access Control",
           },
         ]
       : []),

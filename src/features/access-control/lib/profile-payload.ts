@@ -1,4 +1,4 @@
-import type { AuthUser } from "@/types/auth";
+import type { AuthUser } from "@/features/access-control/types";
 
 export function buildInitialProfilePayload(authUser: AuthUser, now: string) {
   return {

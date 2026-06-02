@@ -2,12 +2,12 @@ import "server-only";
 
 import type { Models } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
-import { buildInitialProfilePayload } from "@/lib/auth/profile-payload";
-import { normalizeEmail } from "@/lib/auth/rules";
+import { buildInitialProfilePayload } from "@/features/access-control/lib/profile-payload";
+import { normalizeEmail } from "@/features/access-control/lib/rules";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { isAppwriteNotFound } from "@/server/errors";
-import type { AuthUser, Profile } from "@/types/auth";
+import type { AuthUser, Profile } from "@/features/access-control/types";
 
 type AppwriteUser = Models.User<Models.Preferences>;
 type AppRow = Models.Row & Record<string, unknown>;
@@ -121,7 +121,7 @@ export async function listProfiles() {
   const result = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.profiles,
-    [Query.limit(100), Query.orderDesc("lastLoginAt")],
+    [Query.limit(500), Query.orderDesc("lastLoginAt")],
     undefined,
     false,
   );

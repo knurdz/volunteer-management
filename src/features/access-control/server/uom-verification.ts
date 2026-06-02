@@ -8,14 +8,14 @@ import {
   createVerificationExpiry,
   hasAttemptsRemaining,
   isVerificationExpired,
-} from "@/lib/auth/verification";
-import { normalizeUomEmail } from "@/lib/auth/rules";
+} from "@/features/access-control/lib/verification";
+import { normalizeUomEmail } from "@/features/access-control/lib/rules";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { writeAuditLog } from "@/server/audit";
 import { sendUomVerificationCode } from "@/server/email/adapter";
-import { markProfileUomVerified } from "@/server/profiles";
-import type { UomVerificationStatus } from "@/types/auth";
+import { getProfile, markProfileUomVerified } from "@/features/access-control/server/profiles";
+import type { UomVerificationStatus } from "@/features/access-control/types";
 
 type VerificationRow = {
   $id: string;
@@ -52,6 +52,12 @@ export async function requestUomVerification({
   userId: string;
 }) {
   const env = getServerEnv();
+  const profile = await getProfile(userId);
+
+  if (profile?.uomVerified) {
+    throw new Error("UoM email is already verified.");
+  }
+
   const normalizedUomEmail = normalizeUomEmail(uomEmail);
   const code = createVerificationCode();
   const codeHash = createCodeHash({
@@ -134,6 +140,12 @@ export async function confirmUomVerification({
 
   if (row.userId !== userId) {
     throw new Error("Verification request does not belong to this user.");
+  }
+
+  const existingProfile = await getProfile(userId);
+
+  if (existingProfile?.uomVerified) {
+    throw new Error("UoM email is already verified.");
   }
 
   if (row.status !== "PENDING") {

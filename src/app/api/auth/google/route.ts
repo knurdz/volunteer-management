@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createGoogleOAuthUrl } from "@/server/auth/oauth";
+import { createGoogleOAuthUrl } from "@/features/access-control/server/oauth";
 import { jsonError } from "@/server/errors";
 
 export async function GET(request: Request) {

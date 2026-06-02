@@ -14,3 +14,17 @@ export function isAppwriteConflict(error: unknown) {
 export function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
+
+export function routeErrorStatus(error: unknown, fallback = 400) {
+  const message = error instanceof Error ? error.message : "";
+
+  if (message === "Authentication required.") {
+    return 401;
+  }
+
+  if (message === "Admin access required.") {
+    return 403;
+  }
+
+  return fallback;
+}

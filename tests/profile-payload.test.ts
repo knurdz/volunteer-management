@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInitialProfilePayload } from "../src/lib/auth/profile-payload";
+import { buildInitialProfilePayload } from "../src/features/access-control/lib/profile-payload";
 
 describe("profile bootstrap payload", () => {
   it("omits optional Appwrite email and datetime fields until they have real values", () => {

@@ -13,15 +13,20 @@ export const EVENT_STATUSES = [
 
 export const SB_ROLES = ["ExCom", "SB Lead", "SB Member"] as const;
 
-export const EVENT_ROLES = ["Chair", "Co Chair", "Event Member"] as const;
+export const EVENT_ROLES = [
+  "Chair",
+  "Vice Chair",
+  "Committee Lead",
+  "Committee Member",
+] as const;
 
-export const SCORING_ROLES = ["Chair", "Vice Chair", "Lead", "Member"] as const;
+export const SCORING_ROLES = EVENT_ROLES;
 
 export const ROLE_BASE_POINTS = {
   Chair: 60,
   "Vice Chair": 40,
-  Lead: 25,
-  Member: 10,
+  "Committee Lead": 25,
+  "Committee Member": 10,
 } as const;
 
 export function isUomEmail(email: string) {

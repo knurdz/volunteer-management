@@ -2,12 +2,12 @@ import "server-only";
 
 import { redirect } from "next/navigation";
 import { getServerEnv } from "@/lib/env";
-import { canVolunteer, hasSbRole, isAdminEmail } from "@/lib/auth/rules";
+import { canVolunteer, hasEventRole, hasSbRole, isAdminEmail } from "@/features/access-control/lib/rules";
 import { getAppwriteSessionServices } from "@/server/appwrite";
-import { bootstrapProfile } from "@/server/profiles";
-import { getActiveSbRoles } from "@/server/roles";
+import { bootstrapProfile } from "@/features/access-control/server/profiles";
+import { getActiveEventRoleAssignments, getActiveSbRoles } from "@/features/access-control/server/roles";
 import { getSessionSecret } from "@/server/session";
-import type { SbRole, SessionUser } from "@/types/auth";
+import type { EventRole, SbRole, SessionUser } from "@/features/access-control/types";
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const sessionSecret = await getSessionSecret();
@@ -22,6 +22,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     const appwriteUser = await account.get();
     const profile = await bootstrapProfile(appwriteUser);
     const sbRoles = await getActiveSbRoles(appwriteUser.$id);
+    const eventRoles = await getActiveEventRoleAssignments(appwriteUser.$id);
 
     return {
       authUser: {
@@ -29,6 +30,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
         id: appwriteUser.$id,
         name: appwriteUser.name ?? "",
       },
+      eventRoles,
       isAdmin: isAdminEmail(appwriteUser.email, env.ADMIN_EMAIL),
       profile,
       sbRoles,
@@ -73,6 +75,20 @@ export async function requireSbRole(roles: SbRole | SbRole[]) {
 
   if (!hasSbRole(user, roles)) {
     throw new Error("Required Student Branch role is missing.");
+  }
+
+  return user;
+}
+
+export async function requireEventRole(eventId: string, roles: EventRole | EventRole[]) {
+  const user = await requireAuth();
+
+  if (!user.isAdmin && !canVolunteer(user.profile)) {
+    throw new Error("Verified UoM email is required before event access.");
+  }
+
+  if (!hasEventRole(user, eventId, roles)) {
+    throw new Error("Required event role is missing.");
   }
 
   return user;

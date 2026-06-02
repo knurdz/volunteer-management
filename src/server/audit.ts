@@ -4,7 +4,7 @@ import { ID } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
-import type { AuditAction } from "@/types/auth";
+import type { AuditAction } from "@/features/access-control/types";
 
 export async function writeAuditLog({
   action,

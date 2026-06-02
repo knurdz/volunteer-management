@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLoginErrorMessage } from "../src/lib/auth/login-error";
+import { getLoginErrorMessage } from "../src/features/access-control/lib/login-error";
 
 describe("login error messages", () => {
   it("explains missing Google OAuth client secret errors", () => {

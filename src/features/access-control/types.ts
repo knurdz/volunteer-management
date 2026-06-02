@@ -16,7 +16,9 @@ export type AuditAction =
   | "UOM_VERIFICATION_REQUESTED"
   | "UOM_VERIFICATION_CONFIRMED"
   | "SB_ROLE_ASSIGNED"
-  | "SB_ROLE_REVOKED";
+  | "SB_ROLE_REVOKED"
+  | "EVENT_ROLE_ASSIGNED"
+  | "EVENT_ROLE_REVOKED";
 
 export type Profile = {
   $id: string;
@@ -40,6 +42,20 @@ export type RoleAssignment = {
   active: boolean;
 };
 
+export type EventRoleAssignment = {
+  $id: string;
+  userId: string;
+  eventId: string;
+  eventTitle: string;
+  committeeName?: string;
+  role: EventRole;
+  eventChairCount?: number;
+  assignedBy: string;
+  assignedAt: string;
+  revokedAt?: string;
+  active: boolean;
+};
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -51,4 +67,5 @@ export type SessionUser = {
   profile: Profile;
   isAdmin: boolean;
   sbRoles: SbRole[];
+  eventRoles: EventRoleAssignment[];
 };

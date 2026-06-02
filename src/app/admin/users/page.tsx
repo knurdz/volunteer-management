@@ -11,9 +11,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { UsersAdminPanel } from "@/features/admin/components/users-admin-panel";
-import { listAdminUsers } from "@/server/admin/users";
-import { getCurrentUser } from "@/server/auth/current-user";
+import { AccessControlPanel } from "@/features/access-control/components/access-control-panel";
+import { listAdminUsers } from "@/features/access-control/server/admin-users";
+import { getCurrentUser } from "@/features/access-control/server/current-user";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +34,8 @@ export default async function AdminUsersPage() {
     <AppShell active="users" user={currentUser}>
       <div className="space-y-6">
         <PageHeader
-          title="Users & Roles"
-          description="Review registered profiles and manage Student Branch privileges."
+          title="Access Control"
+          description="Manage verified profiles, Student Branch privileges, and event-scoped responsibilities."
           actions={
             <Link className={buttonClasses()} href="/dashboard">
               <ArrowLeft className="size-4" aria-hidden="true" />
@@ -50,11 +50,11 @@ export default async function AdminUsersPage() {
               Profile Directory
             </CardTitle>
             <CardDescription>
-              The configured Admin account is the only source of role changes.
+              The configured Admin account is the only source of branch and event role changes.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <UsersAdminPanel initialUsers={users} />
+            <AccessControlPanel initialUsers={users} />
           </CardContent>
         </Card>
       </div>

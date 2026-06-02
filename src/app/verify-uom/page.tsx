@@ -12,8 +12,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { VerificationPanel } from "@/features/uom-verification/components/verification-panel";
-import { getCurrentUser } from "@/server/auth/current-user";
+import { VerificationPanel } from "@/features/access-control/components/verification-panel";
+import { getCurrentUser } from "@/features/access-control/server/current-user";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,11 @@ export default async function VerifyUomPage() {
       <div className="space-y-6">
         <PageHeader
           title="UoM Email Verification"
-          description="Confirm a university email address before volunteer access is enabled."
+          description={
+            user.profile.uomVerified
+              ? "Your university email address is already confirmed for volunteer access."
+              : "Confirm a university email address before volunteer access is enabled."
+          }
           actions={
             <Link className={buttonClasses()} href="/dashboard">
               <ArrowLeft className="size-4" aria-hidden="true" />
@@ -57,21 +61,23 @@ export default async function VerifyUomPage() {
             </CardContent>
           </Card>
         ) : null}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MailCheck className="size-4 text-primary" aria-hidden="true" />
-              Verification Request
-            </CardTitle>
-            <CardDescription>
-              A one-time code will be sent to the entered{" "}
-              <span className="font-medium">@uom.lk</span> mailbox.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <VerificationPanel />
-          </CardContent>
-        </Card>
+        {user.profile.uomVerified ? null : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MailCheck className="size-4 text-primary" aria-hidden="true" />
+                Verification Request
+              </CardTitle>
+              <CardDescription>
+                A one-time code will be sent to the entered{" "}
+                <span className="font-medium">@uom.lk</span> mailbox.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <VerificationPanel />
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppShell>
   );

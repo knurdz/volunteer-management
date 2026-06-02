@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { KeyRound, Mail, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -11,6 +12,7 @@ type RequestResult = {
 };
 
 export function VerificationPanel() {
+  const router = useRouter();
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
   const [requestResult, setRequestResult] = useState<RequestResult | null>(null);
@@ -73,7 +75,8 @@ export function VerificationPanel() {
       }
 
       setStatus("success");
-      setMessage("UoM email verified. Return to the overview to continue.");
+      setMessage("UoM email verified.");
+      router.refresh();
     } finally {
       setSubmitting(null);
     }

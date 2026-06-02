@@ -4,6 +4,7 @@ export const APPWRITE_TABLES = {
   profiles: "profiles",
   uomVerificationRequests: "uom_verification_requests",
   sbRoleAssignments: "sb_role_assignments",
+  eventRoleAssignments: "event_role_assignments",
   auditLogs: "audit_logs",
 } as const;
 
