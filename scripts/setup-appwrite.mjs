@@ -155,6 +155,88 @@ const tableDefinitions = [
       ["audit_created_at_idx", ["createdAt"]],
     ],
   },
+  {
+    id: "participation_records",
+    name: "Participation Records",
+    columns: [
+      ["string", "userId", 64, true],
+      ["string", "eventId", 128, true],
+      ["string", "role", 64, true],
+      ["enum", "status", ["attended", "absent", "excused"], true],
+      ["datetime", "createdAt", true],
+      ["datetime", "updatedAt", true],
+    ],
+    indexes: [
+      ["participation_user_idx", ["userId"]],
+      ["participation_event_idx", ["eventId"]],
+    ],
+  },
+  {
+    id: "grade_requests",
+    name: "Grade Requests",
+    columns: [
+      ["string", "requestId", 64, true],
+      ["string", "eventId", 128, true],
+      ["string", "requestedBy", 64, true],
+      ["string", "targetUserId", 64, true],
+      ["enum", "status", ["pending", "submitted", "reviewed", "finalized"], true],
+      ["datetime", "createdAt", true],
+      ["datetime", "updatedAt", true],
+    ],
+    indexes: [
+      ["grade_requests_event_idx", ["eventId"]],
+      ["grade_requests_target_idx", ["targetUserId"]],
+    ],
+  },
+  {
+    id: "grade_reviews",
+    name: "Grade Reviews",
+    columns: [
+      ["string", "gradeRequestId", 64, true],
+      ["string", "reviewerId", 64, true],
+      ["integer", "gradeValue", true],
+      ["datetime", "submittedAt", true],
+      ["string", "audit_metadata", 4000, false],
+    ],
+    indexes: [
+      ["grade_reviews_request_idx", ["gradeRequestId"]],
+      ["grade_reviews_reviewer_idx", ["reviewerId"]],
+    ],
+  },
+  {
+    id: "point_ledger",
+    name: "Point Ledger",
+    columns: [
+      ["string", "userId", 64, true],
+      ["string", "eventId", 128, true],
+      ["integer", "points", true],
+      ["datetime", "conclusionApprovalDate", true],
+      ["enum", "source", ["grade", "role", "manual"], true],
+      ["string", "createdBy", 64, true],
+      ["datetime", "createdAt", true],
+    ],
+    indexes: [
+      ["point_ledger_user_idx", ["userId"]],
+      ["point_ledger_event_idx", ["eventId"]],
+      ["point_ledger_approval_idx", ["conclusionApprovalDate"]],
+    ],
+  },
+  {
+    id: "term_scoring_config",
+    name: "Term Scoring Config",
+    columns: [
+      ["string", "userId", 64, true],
+      ["string", "term", 32, true],
+      ["integer", "year", true],
+      ["boolean", "excludedFromTopBoard", false, false],
+      ["string", "reason", 500, false],
+      ["string", "setBy", 64, true],
+    ],
+    indexes: [
+      ["term_config_user_idx", ["userId"]],
+      ["term_config_lookup_idx", ["term", "year"]],
+    ],
+  },
 ];
 
 async function ignoreAlreadyExists(action, label) {

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, LogOut, MailCheck, ShieldCheck, UsersRound } from "lucide-react";
+import { LayoutDashboard, LogOut, MailCheck, ShieldCheck, UsersRound, Trophy } from "lucide-react";
 import { APP_NAME, ORGANIZATION_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/features/access-control/types";
@@ -9,7 +9,7 @@ export function AppShell({
   children,
   user,
 }: Readonly<{
-  active: "dashboard" | "verification" | "users";
+  active: "dashboard" | "verification" | "users" | "scoring";
   children: React.ReactNode;
   user: SessionUser;
 }>) {
@@ -25,6 +25,12 @@ export function AppShell({
       icon: MailCheck,
       id: "verification",
       label: "UoM Verification",
+    },
+    {
+      href: "/scoring",
+      icon: Trophy,
+      id: "scoring",
+      label: "Scoring & Leaderboard",
     },
     ...(user.isAdmin
       ? [
