@@ -26,5 +26,13 @@ export function routeErrorStatus(error: unknown, fallback = 400) {
     return 403;
   }
 
+  if (message === "Verified UoM email is required before volunteering.") {
+    return 403;
+  }
+
+  if (message === "Verified UoM email is required before requesting recommendations.") {
+    return 403;
+  }
+
   return fallback;
 }
