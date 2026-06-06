@@ -1,6 +1,7 @@
 import { EVENT_ROLES, SB_ROLES } from "@/lib/config";
 import type {
   IeeeTerm,
+  IeeeTermStatus,
   PermissionOverview,
   TopBoardExclusion,
 } from "@/features/system-settings/types";
@@ -10,6 +11,16 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export type TermDateRange = {
   endDate: string;
   startDate: string;
+};
+
+export type ActiveTermRepair = {
+  active: boolean;
+  reason:
+    | "DRAFT_ACTIVE_FLAG_CLEARED"
+    | "NON_SELECTED_ACTIVE_TERM_CLOSED"
+    | "SELECTED_TERM_NORMALIZED";
+  status: IeeeTermStatus;
+  termId: string;
 };
 
 export function assertTermCanBeUpdated(
@@ -114,22 +125,63 @@ export function resolveActiveTermState(
   configuredTermId?: string | null,
 ) {
   const normalizedConfiguredTermId = configuredTermId ?? "";
-  const activeTerms = terms
-    .filter((term) => term.active && term.status === "ACTIVE")
+  const activeStatusTerms = terms
+    .filter((term) => term.status === "ACTIVE")
     .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
+  const configuredTerm = terms.find(
+    (term) =>
+      term.$id === normalizedConfiguredTermId && term.status === "ACTIVE",
+  );
   const selectedTerm =
-    activeTerms.find((term) => term.$id === normalizedConfiguredTermId) ??
-    activeTerms[0];
+    configuredTerm ??
+    activeStatusTerms.find((term) => term.active) ??
+    activeStatusTerms[0];
+  const termRepairs: ActiveTermRepair[] = [];
+
+  for (const term of terms) {
+    if (term.$id === selectedTerm?.$id) {
+      if (!term.active || term.status !== "ACTIVE") {
+        termRepairs.push({
+          active: true,
+          reason: "SELECTED_TERM_NORMALIZED",
+          status: "ACTIVE",
+          termId: term.$id,
+        });
+      }
+
+      continue;
+    }
+
+    if (term.active && term.status === "DRAFT") {
+      termRepairs.push({
+        active: false,
+        reason: "DRAFT_ACTIVE_FLAG_CLEARED",
+        status: "DRAFT",
+        termId: term.$id,
+      });
+      continue;
+    }
+
+    if (term.active || term.status === "ACTIVE") {
+      termRepairs.push({
+        active: false,
+        reason: "NON_SELECTED_ACTIVE_TERM_CLOSED",
+        status: "CLOSED",
+        termId: term.$id,
+      });
+    }
+  }
 
   return {
     activeTermId: selectedTerm?.$id ?? "",
-    duplicateActiveTermIds: activeTerms
-      .filter((term) => term.$id !== selectedTerm?.$id)
-      .map((term) => term.$id),
+    duplicateActiveTermIds: termRepairs
+      .filter((repair) => repair.reason === "NON_SELECTED_ACTIVE_TERM_CLOSED")
+      .map((repair) => repair.termId),
     needsRepair:
       configuredTermId === null ||
       normalizedConfiguredTermId !== (selectedTerm?.$id ?? "") ||
-      activeTerms.length > 1,
+      termRepairs.length > 0,
+    termRepairs,
   };
 }
 

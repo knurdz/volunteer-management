@@ -127,26 +127,99 @@ describe("system settings rules", () => {
       activeTermId: "newer-active",
       duplicateActiveTermIds: ["older-active"],
       needsRepair: true,
+      termRepairs: [
+        {
+          active: false,
+          reason: "NON_SELECTED_ACTIVE_TERM_CLOSED",
+          status: "CLOSED",
+          termId: "older-active",
+        },
+      ],
     });
     expect(resolveActiveTermState(terms, "older-active")).toEqual({
       activeTermId: "older-active",
       duplicateActiveTermIds: ["newer-active"],
       needsRepair: true,
+      termRepairs: [
+        {
+          active: false,
+          reason: "NON_SELECTED_ACTIVE_TERM_CLOSED",
+          status: "CLOSED",
+          termId: "newer-active",
+        },
+      ],
     });
     expect(resolveActiveTermState([terms[2]], "closed-term")).toEqual({
       activeTermId: "",
       duplicateActiveTermIds: [],
       needsRepair: true,
+      termRepairs: [],
     });
     expect(resolveActiveTermState([], "")).toEqual({
       activeTermId: "",
       duplicateActiveTermIds: [],
       needsRepair: false,
+      termRepairs: [],
     });
     expect(resolveActiveTermState([], null)).toEqual({
       activeTermId: "",
       duplicateActiveTermIds: [],
       needsRepair: true,
+      termRepairs: [],
+    });
+  });
+
+  it("repairs contradictory active flags and ACTIVE statuses", () => {
+    expect(
+      resolveActiveTermState(
+        [
+          {
+            $id: "draft-with-active-flag",
+            active: true,
+            status: "DRAFT",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        "",
+      ),
+    ).toEqual({
+      activeTermId: "",
+      duplicateActiveTermIds: [],
+      needsRepair: true,
+      termRepairs: [
+        {
+          active: false,
+          reason: "DRAFT_ACTIVE_FLAG_CLEARED",
+          status: "DRAFT",
+          termId: "draft-with-active-flag",
+        },
+      ],
+    });
+
+    expect(
+      resolveActiveTermState(
+        [
+          {
+            $id: "inactive-active-status",
+            active: false,
+            status: "ACTIVE",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        "inactive-active-status",
+      ),
+    ).toEqual({
+      activeTermId: "inactive-active-status",
+      duplicateActiveTermIds: [],
+      needsRepair: true,
+      termRepairs: [
+        {
+          active: true,
+          reason: "SELECTED_TERM_NORMALIZED",
+          status: "ACTIVE",
+          termId: "inactive-active-status",
+        },
+      ],
     });
   });
 

@@ -150,4 +150,37 @@ describe("system settings API authorization", () => {
     expect(mocks.getPermissionOverview).not.toHaveBeenCalled();
     expect(mocks.listAuditLogs).not.toHaveBeenCalled();
   });
+
+  it("passes audit pagination parameters through the Admin API", async () => {
+    mocks.requireAdmin.mockResolvedValue({
+      authUser: { id: "admin-1" },
+    });
+    mocks.listAuditLogs.mockResolvedValue({
+      auditLogs: [],
+      nextCursor: "next-row",
+      total: 125,
+    });
+
+    const response = await getAuditLogs(
+      new Request(
+        "http://localhost/api/admin/settings/audit-logs?action=IEEE_TERM_CLOSED&cursor=row-25&limit=25",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.listAuditLogs).toHaveBeenCalledWith({
+      action: "IEEE_TERM_CLOSED",
+      actorUserId: undefined,
+      cursor: "row-25",
+      dateFrom: undefined,
+      dateTo: undefined,
+      limit: 25,
+      targetId: undefined,
+    });
+    await expect(response.json()).resolves.toEqual({
+      auditLogs: [],
+      nextCursor: "next-row",
+      total: 125,
+    });
+  });
 });

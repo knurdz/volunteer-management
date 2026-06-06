@@ -61,3 +61,9 @@ export type AuditLog = {
   targetId: string;
   targetType: string;
 };
+
+export type AuditLogPage = {
+  auditLogs: AuditLog[];
+  nextCursor?: string;
+  total: number;
+};

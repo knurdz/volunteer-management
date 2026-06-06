@@ -18,6 +18,7 @@ import {
 } from "@/features/system-settings/lib/rules";
 import { runTablesTransaction } from "@/features/system-settings/server/transactions";
 import type {
+  AuditLogPage,
   AuditLog,
   IeeeTerm,
   IeeeTermStatus,
@@ -350,18 +351,43 @@ export async function activateIeeeTerm({
 
   return runTablesTransaction(tables, async (transactionId) => {
     for (const term of terms.filter(
-      (term) => term.active && term.$id !== termId,
+      (term) =>
+        term.$id !== termId && (term.active || term.status === "ACTIVE"),
     )) {
+      const isDraftRepair = term.status === "DRAFT";
+      const isClosedRepair = term.status === "CLOSED";
+      const nextStatus = isDraftRepair ? "DRAFT" : "CLOSED";
+
       await tables.updateRow({
         data: {
           active: false,
-          status: "CLOSED",
+          status: nextStatus,
           updatedAt: now,
           updatedBy: actorUserId,
         },
         databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
         rowId: term.$id,
         tableId: APPWRITE_TABLES.ieeeTerms,
+        transactionId,
+      });
+      await writeAuditLog({
+        action:
+          isDraftRepair || isClosedRepair
+            ? "IEEE_TERM_STATE_REPAIRED"
+            : "IEEE_TERM_CLOSED",
+        actorUserId,
+        metadata: {
+          after: { active: false, status: nextStatus },
+          before: { active: term.active, status: term.status },
+          reason: isDraftRepair
+            ? "DRAFT_ACTIVE_FLAG_CLEARED"
+            : isClosedRepair
+              ? "CLOSED_ACTIVE_FLAG_CLEARED"
+              : "ACTIVE_TERM_REPLACED",
+          replacementTermId: termId,
+        },
+        targetId: term.$id,
+        targetType: "ieee_term",
         transactionId,
       });
     }
@@ -414,10 +440,9 @@ export async function reconcileActiveTermState(
     terms,
     activeTermSetting ? activeTermSetting.value ?? "" : null,
   );
-  const duplicateActiveTerms = terms.filter((term) =>
-    resolution.duplicateActiveTermIds.includes(term.$id),
-  );
-
+  const activeSettingNeedsRepair =
+    !activeTermSetting ||
+    (activeTermSetting.value ?? "") !== resolution.activeTermId;
   if (!resolution.needsRepair) {
     return resolution.activeTermId;
   }
@@ -425,27 +450,48 @@ export async function reconcileActiveTermState(
   const now = new Date().toISOString();
 
   await runTablesTransaction(tables, async (transactionId) => {
-    for (const term of duplicateActiveTerms) {
+    for (const repair of resolution.termRepairs) {
+      const term = terms.find((candidate) => candidate.$id === repair.termId);
+
+      if (!term) {
+        throw new Error(`IEEE term ${repair.termId} could not be repaired.`);
+      }
+
       await tables.updateRow({
         data: {
-          active: false,
-          status: "CLOSED",
+          active: repair.active,
+          status: repair.status,
           updatedAt: now,
           updatedBy: actorUserId,
         },
         databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-        rowId: term.$id,
+        rowId: repair.termId,
         tableId: APPWRITE_TABLES.ieeeTerms,
+        transactionId,
+      });
+      await writeAuditLog({
+        action: "IEEE_TERM_STATE_REPAIRED",
+        actorUserId,
+        metadata: {
+          after: { active: repair.active, status: repair.status },
+          before: { active: term.active, status: term.status },
+          reason: repair.reason,
+          selectedActiveTermId: resolution.activeTermId,
+        },
+        targetId: repair.termId,
+        targetType: "ieee_term",
         transactionId,
       });
     }
 
-    await upsertSystemSetting({
-      actorUserId,
-      key: ACTIVE_TERM_SETTING_KEY,
-      transactionId,
-      value: resolution.activeTermId,
-    });
+    if (activeSettingNeedsRepair) {
+      await upsertSystemSetting({
+        actorUserId,
+        key: ACTIVE_TERM_SETTING_KEY,
+        transactionId,
+        value: resolution.activeTermId,
+      });
+    }
   });
 
   return resolution.activeTermId;
@@ -458,19 +504,27 @@ export function getPermissionOverview(adminEmail: string): PermissionOverview {
 export async function listAuditLogs({
   action,
   actorUserId,
+  cursor,
   dateFrom,
   dateTo,
+  limit = 25,
   targetId,
 }: {
   action?: string;
   actorUserId?: string;
+  cursor?: string;
   dateFrom?: string;
   dateTo?: string;
+  limit?: number;
   targetId?: string;
-} = {}) {
+} = {}): Promise<AuditLogPage> {
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
-  const queries = [Query.orderDesc("createdAt"), Query.limit(100)];
+  const pageSize = Math.min(Math.max(Math.trunc(limit), 1), 99);
+  const queries = [
+    Query.orderDesc("createdAt"),
+    Query.limit(pageSize + 1),
+  ];
 
   if (action) {
     queries.push(Query.equal("action", action));
@@ -482,6 +536,10 @@ export async function listAuditLogs({
 
   if (targetId) {
     queries.push(Query.equal("targetId", targetId));
+  }
+
+  if (cursor) {
+    queries.push(Query.cursorAfter(cursor));
   }
 
   if (dateFrom) {
@@ -500,20 +558,29 @@ export async function listAuditLogs({
     false,
   );
 
-  return result.rows.map((row) => toAuditLog(row as AppRow));
+  const hasMore = result.rows.length > pageSize;
+  const rows = hasMore ? result.rows.slice(0, pageSize) : result.rows;
+  const auditLogs = rows.map((row) => toAuditLog(row as AppRow));
+
+  return {
+    auditLogs,
+    nextCursor: hasMore ? auditLogs.at(-1)?.$id : undefined,
+    total: result.total,
+  };
 }
 
 export async function getInitialSystemSettingsData() {
   const env = getServerEnv();
-  const [terms, auditLogs] = await Promise.all([
+  const initialTerms = await listIeeeTerms();
+  const activeTermId = await reconcileActiveTermState("system", initialTerms);
+  const [terms, auditPage] = await Promise.all([
     listIeeeTerms(),
     listAuditLogs(),
   ]);
-  const activeTermId = await reconcileActiveTermState("system", terms);
 
   return {
     activeTermId,
-    auditLogs,
+    auditPage,
     permissions: getPermissionOverview(env.ADMIN_EMAIL),
     terms,
   };

@@ -22,6 +22,7 @@ import {
 import type { Profile } from "@/features/access-control/types";
 import type {
   AuditLog,
+  AuditLogPage,
   IeeeTerm,
   IeeeTermStatus,
   PermissionOverview,
@@ -71,6 +72,8 @@ const auditActionOptions = [
   "IEEE_TERM_CREATED",
   "IEEE_TERM_UPDATED",
   "IEEE_TERM_ACTIVATED",
+  "IEEE_TERM_CLOSED",
+  "IEEE_TERM_STATE_REPAIRED",
   "TOP_BOARD_EXCLUSION_ADDED",
   "TOP_BOARD_EXCLUSION_REMOVED",
   "SYSTEM_SETTING_UPDATED",
@@ -80,7 +83,7 @@ const inputClasses =
 
 export function SystemSettingsPanel({
   initialActiveTermId,
-  initialAuditLogs,
+  initialAuditPage,
   initialExclusions,
   initialPermissions,
   initialSelectedTermId,
@@ -88,7 +91,7 @@ export function SystemSettingsPanel({
   initialUsers,
 }: {
   initialActiveTermId: string;
-  initialAuditLogs: AuditLog[];
+  initialAuditPage: AuditLogPage;
   initialExclusions: TopBoardExclusion[];
   initialPermissions: PermissionOverview;
   initialSelectedTermId: string;
@@ -103,7 +106,11 @@ export function SystemSettingsPanel({
     dateTo: "",
     targetId: "",
   });
-  const [auditLogs, setAuditLogs] = useState(initialAuditLogs);
+  const [auditLogs, setAuditLogs] = useState(initialAuditPage.auditLogs);
+  const [auditNextCursor, setAuditNextCursor] = useState(
+    initialAuditPage.nextCursor ?? "",
+  );
+  const [auditTotal, setAuditTotal] = useState(initialAuditPage.total);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [editingTermId, setEditingTermId] = useState<string | null>(null);
   const [exclusionForm, setExclusionForm] = useState<ExclusionFormState>({
@@ -146,7 +153,10 @@ export function SystemSettingsPanel({
     }));
   }
 
-  async function refreshTerms(nextMessage = "IEEE terms refreshed.") {
+  async function refreshTerms(
+    nextMessage = "IEEE terms refreshed.",
+    preferredTermId?: string,
+  ) {
     const response = await fetch("/api/admin/settings/terms");
     const payload = await response.json();
 
@@ -158,7 +168,11 @@ export function SystemSettingsPanel({
     const nextTerms = payload.terms as IeeeTerm[];
     const nextActiveTermId = nextTerms.find((term) => term.active)?.$id ?? "";
     const nextSelectedTermId =
-      selectedTermId && nextTerms.some((term) => term.$id === selectedTermId)
+      preferredTermId &&
+      nextTerms.some((term) => term.$id === preferredTermId)
+        ? preferredTermId
+        : selectedTermId &&
+            nextTerms.some((term) => term.$id === selectedTermId)
         ? selectedTermId
         : nextActiveTermId || nextTerms[0]?.$id || "";
 
@@ -220,9 +234,7 @@ export function SystemSettingsPanel({
         return;
       }
 
-      setActiveTermId((payload.term as IeeeTerm).$id);
-      setSelectedTermId((payload.term as IeeeTerm).$id);
-      await refreshTerms("IEEE term activated.");
+      await refreshTerms("IEEE term activated.", (payload.term as IeeeTerm).$id);
     } finally {
       setPendingAction(null);
     }
@@ -339,8 +351,13 @@ export function SystemSettingsPanel({
     }
   }
 
-  async function refreshAuditLogs(event?: React.FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
+  async function loadAuditLogs({
+    append,
+    cursor,
+  }: {
+    append: boolean;
+    cursor?: string;
+  }) {
     const params = new URLSearchParams();
 
     for (const [key, value] of Object.entries(auditFilters)) {
@@ -349,7 +366,13 @@ export function SystemSettingsPanel({
       }
     }
 
-    setPendingAction("audit:refresh");
+    params.set("limit", "25");
+
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+
+    setPendingAction(append ? "audit:load-more" : "audit:refresh");
     setNotice("idle", "Loading audit logs...");
 
     try {
@@ -363,11 +386,33 @@ export function SystemSettingsPanel({
         return;
       }
 
-      setAuditLogs(payload.auditLogs);
-      setNotice("success", "Audit logs loaded.");
+      const page = payload as AuditLogPage;
+
+      setAuditLogs((current) =>
+        append ? [...current, ...page.auditLogs] : page.auditLogs,
+      );
+      setAuditNextCursor(page.nextCursor ?? "");
+      setAuditTotal(page.total);
+      setNotice(
+        "success",
+        append ? "More audit records loaded." : "Audit logs loaded.",
+      );
     } finally {
       setPendingAction(null);
     }
+  }
+
+  async function refreshAuditLogs(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    await loadAuditLogs({ append: false });
+  }
+
+  async function loadMoreAuditLogs() {
+    if (!auditNextCursor) {
+      return;
+    }
+
+    await loadAuditLogs({ append: true, cursor: auditNextCursor });
   }
 
   async function runConfirmedAction() {
@@ -400,7 +445,7 @@ export function SystemSettingsPanel({
           value={activeTermId ? terms.find((term) => term.$id === activeTermId)?.label ?? "Set" : "None"}
         />
         <SummaryTile label="Top Board exclusions" value={String(activeExclusions.length)} />
-        <SummaryTile label="Audit records" value={String(auditLogs.length)} />
+        <SummaryTile label="Audit records" value={String(auditTotal)} />
       </section>
 
       <div className="inline-flex flex-wrap rounded-md border border-border bg-surface p-1">
@@ -461,6 +506,9 @@ export function SystemSettingsPanel({
         <AuditPanel
           auditFilters={auditFilters}
           auditLogs={auditLogs}
+          auditNextCursor={auditNextCursor}
+          auditTotal={auditTotal}
+          loadMoreAuditLogs={loadMoreAuditLogs}
           pendingAction={pendingAction}
           refreshAuditLogs={refreshAuditLogs}
           setAuditFilters={setAuditFilters}
@@ -943,12 +991,18 @@ function PermissionsPanel({ permissions }: { permissions: PermissionOverview }) 
 function AuditPanel({
   auditFilters,
   auditLogs,
+  auditNextCursor,
+  auditTotal,
+  loadMoreAuditLogs,
   pendingAction,
   refreshAuditLogs,
   setAuditFilters,
 }: {
   auditFilters: AuditFilters;
   auditLogs: AuditLog[];
+  auditNextCursor: string;
+  auditTotal: number;
+  loadMoreAuditLogs: () => Promise<void>;
   pendingAction: string | null;
   refreshAuditLogs: (event?: React.FormEvent<HTMLFormElement>) => void;
   setAuditFilters: React.Dispatch<React.SetStateAction<AuditFilters>>;
@@ -1084,6 +1138,21 @@ function AuditPanel({
             ) : null}
           </tbody>
         </table>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-text-secondary">
+          Showing {auditLogs.length} of {auditTotal} records
+        </p>
+        {auditNextCursor ? (
+          <Button
+            disabled={pendingAction === "audit:load-more"}
+            onClick={loadMoreAuditLogs}
+            type="button"
+          >
+            <RefreshCw className="size-4" aria-hidden="true" />
+            Load More
+          </Button>
+        ) : null}
       </div>
     </div>
   );
