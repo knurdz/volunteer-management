@@ -155,6 +155,60 @@ const tableDefinitions = [
       ["audit_created_at_idx", ["createdAt"]],
     ],
   },
+  {
+    id: "events",
+    name: "Events",
+    columns: [
+      ["string", "title", 200, true],
+      ["string", "reference", 100, true],
+      ["string", "description", 2000, false],
+      ["string", "term", 20, true],
+      ["integer", "year", true],
+      ["datetime", "start_date", true],
+      ["datetime", "end_date", false],
+      [
+        "enum",
+        "status",
+        ["draft", "planning", "published", "ongoing", "pending_conclusion", "closed"],
+        true,
+      ],
+      [
+        "enum",
+        "conclusion_status",
+        ["not_submitted", "submitted", "approved", "rejected"],
+        true,
+      ],
+      ["string", "created_by", 64, true],
+      ["datetime", "created_at", true],
+      ["datetime", "updated_at", true],
+    ],
+    indexes: [
+      ["events_status_idx", ["status"]],
+      ["events_term_idx", ["term"]],
+      ["events_created_by_idx", ["created_by"]],
+      ["events_reference_idx", ["reference"], "unique"],
+    ],
+  },
+  {
+    id: "event_committees",
+    name: "Event Committees",
+    columns: [
+      ["string", "event_id", 64, true],
+      ["string", "user_id", 64, true],
+      ["enum", "role", ["chair", "vice_chair", "committee_lead", "committee_member"], true],
+      ["string", "committee_name", 100, false],
+      ["string", "display_role", 50, false],
+      ["string", "assigned_by", 64, true],
+      ["datetime", "assigned_at", true],
+      ["boolean", "is_active", false, true],
+    ],
+    indexes: [
+      ["event_committees_event_idx", ["event_id"]],
+      ["event_committees_user_idx", ["user_id"]],
+      ["event_committees_event_role_idx", ["event_id", "role"]],
+      ["event_committees_event_user_idx", ["event_id", "user_id"], "unique"],
+    ],
+  },
 ];
 
 async function ignoreAlreadyExists(action, label) {
