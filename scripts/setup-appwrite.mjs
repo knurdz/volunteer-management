@@ -139,61 +139,6 @@ const tableDefinitions = [
     ],
   },
   {
-    id: "ieee_terms",
-    name: "IEEE Terms",
-    columns: [
-      ["string", "label", 32, true],
-      ["string", "startDate", 10, true],
-      ["string", "endDate", 10, true],
-      ["boolean", "active", false, false],
-      ["enum", "status", ["DRAFT", "ACTIVE", "CLOSED"], false, "DRAFT"],
-      ["string", "notes", 1000, false],
-      ["datetime", "createdAt", true],
-      ["datetime", "updatedAt", true],
-      ["string", "createdBy", 64, true],
-      ["string", "updatedBy", 64, true],
-    ],
-    indexes: [
-      ["ieee_terms_label_idx", ["label"]],
-      ["ieee_terms_active_idx", ["active"]],
-      ["ieee_terms_status_idx", ["status"]],
-      ["ieee_terms_start_idx", ["startDate"]],
-      ["ieee_terms_end_idx", ["endDate"]],
-    ],
-  },
-  {
-    id: "system_settings",
-    name: "System Settings",
-    columns: [
-      ["string", "key", 128, true],
-      ["string", "value", 4000, false],
-      ["datetime", "updatedAt", true],
-      ["string", "updatedBy", 64, true],
-    ],
-    indexes: [
-      ["system_settings_key_idx", ["key"]],
-    ],
-  },
-  {
-    id: "top_board_exclusions",
-    name: "Top Board Exclusions",
-    columns: [
-      ["string", "termId", 64, true],
-      ["string", "userId", 64, true],
-      ["string", "reason", 1000, true],
-      ["boolean", "active", false, true],
-      ["datetime", "createdAt", true],
-      ["string", "createdBy", 64, true],
-      ["datetime", "revokedAt", false],
-      ["string", "revokedBy", 64, false],
-    ],
-    indexes: [
-      ["top_board_exclusions_term_idx", ["termId"]],
-      ["top_board_exclusions_user_idx", ["userId"]],
-      ["top_board_exclusions_active_idx", ["active"]],
-    ],
-  },
-  {
     id: "audit_logs",
     name: "Audit Logs",
     columns: [

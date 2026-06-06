@@ -4,7 +4,6 @@ import {
   CalendarDays,
   CheckCircle2,
   MailCheck,
-  Settings,
   ShieldCheck,
   UserRound,
   UsersRound,
@@ -51,22 +50,13 @@ export default async function DashboardPage() {
                 {user.profile.uomVerified ? "View Verification" : "Verify UoM Email"}
               </Link>
               {user.isAdmin ? (
-                <>
-                  <Link
-                    className={buttonClasses()}
-                    href="/admin/users"
-                  >
-                    <UsersRound className="size-4" aria-hidden="true" />
-                    Access Control
-                  </Link>
-                  <Link
-                    className={buttonClasses()}
-                    href="/admin/settings"
-                  >
-                    <Settings className="size-4" aria-hidden="true" />
-                    System Settings
-                  </Link>
-                </>
+                <Link
+                  className={buttonClasses()}
+                  href="/admin/users"
+                >
+                  <UsersRound className="size-4" aria-hidden="true" />
+                  Access Control
+                </Link>
               ) : null}
             </>
           }
