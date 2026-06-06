@@ -39,6 +39,8 @@ const serverEnvSchema = z.object({
   SMTP_PASSWORD: optionalString,
   SMTP_FROM_EMAIL: optionalEmail,
   SMTP_FROM_NAME: optionalString,
+  INTERNAL_JOB_TOKEN: optionalString,
+  NOTIFICATION_EMAILS_ENABLED: optionalBooleanString,
   OPTIONAL_AI_API_KEY: z.string().optional(),
 });
 

@@ -26,5 +26,13 @@ export function routeErrorStatus(error: unknown, fallback = 400) {
     return 403;
   }
 
+  if (
+    message.endsWith("access is required.") ||
+    message.endsWith("permission is required.") ||
+    message.startsWith("Required ")
+  ) {
+    return 403;
+  }
+
   return fallback;
 }
