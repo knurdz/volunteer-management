@@ -81,7 +81,7 @@ export async function upsertParticipationRecord(data: {
         updatedAt: now,
       }
     );
-    return row as unknown as ParticipationRecord;
+    return JSON.parse(JSON.stringify(row)) as ParticipationRecord;
   } catch {
     const row = await tables.createRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
@@ -96,7 +96,7 @@ export async function upsertParticipationRecord(data: {
         updatedAt: now,
       }
     );
-    return row as unknown as ParticipationRecord;
+    return JSON.parse(JSON.stringify(row)) as ParticipationRecord;
   }
 }
 
@@ -223,7 +223,7 @@ export async function createGradeRequest(data: {
     }
   );
 
-  return updatedRequest as unknown as GradeRequest;
+  return JSON.parse(JSON.stringify(updatedRequest)) as GradeRequest;
 }
 
 export async function listGradeRequests(params?: { limit?: number; offset?: number }) {
@@ -244,12 +244,13 @@ export async function listGradeRequests(params?: { limit?: number; offset?: numb
     ]
   );
 
+  const rows = JSON.parse(JSON.stringify(result.rows)) as GradeRequest[];
   if (user.isAdmin) {
-    return result.rows as unknown as GradeRequest[];
+    return rows;
   }
 
   const userEventIds = user.eventRoles.map((r) => r.eventId);
-  return (result.rows as unknown as GradeRequest[]).filter((row) =>
+  return rows.filter((row) =>
     userEventIds.includes(row.eventId)
   );
 }
@@ -326,7 +327,7 @@ export async function submitGradeReview(gradeRequestId: string, gradeValue: numb
     }
   );
 
-  return updatedRequest as unknown as GradeRequest;
+  return JSON.parse(JSON.stringify(updatedRequest)) as GradeRequest;
 }
 
 /**
@@ -492,7 +493,7 @@ export async function finalizeGrade(gradeRequestId: string) {
     }
   );
 
-  return updatedRequest as unknown as GradeRequest;
+  return JSON.parse(JSON.stringify(updatedRequest)) as GradeRequest;
 }
 
 /**
@@ -612,7 +613,7 @@ export async function adminOverrideGrade(
     );
   }
 
-  return updatedReview as unknown as GradeReview;
+  return JSON.parse(JSON.stringify(updatedReview)) as GradeReview;
 }
 
 /**
@@ -641,7 +642,7 @@ export async function getVolunteerPoints(userId: string, params?: { limit?: numb
     ]
   );
 
-  return result.rows as unknown as PointLedgerEntry[];
+  return JSON.parse(JSON.stringify(result.rows)) as PointLedgerEntry[];
 }
 
 /**
@@ -689,7 +690,7 @@ export async function toggleTopBoardExclusion(data: {
         setBy: changerId,
       }
     );
-    return row as unknown as TermScoringConfig;
+    return JSON.parse(JSON.stringify(row)) as TermScoringConfig;
   } else {
     const row = await tables.createRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
@@ -704,7 +705,7 @@ export async function toggleTopBoardExclusion(data: {
         setBy: changerId,
       }
     );
-    return row as unknown as TermScoringConfig;
+    return JSON.parse(JSON.stringify(row)) as TermScoringConfig;
   }
 }
 
