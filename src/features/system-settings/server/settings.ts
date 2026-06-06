@@ -6,7 +6,7 @@ import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { writeAuditLog } from "@/server/audit";
-import { isAppwriteNotFound } from "@/server/errors";
+import { isAppwriteConflict, isAppwriteNotFound } from "@/server/errors";
 import {
   assertNoOverlappingTerms,
   assertTermCanBeActivated,
@@ -208,38 +208,46 @@ export async function createIeeeTerm({
   const now = new Date().toISOString();
   const termId = ID.unique();
 
-  return runTablesTransaction(tables, async (transactionId) => {
-    const row = await tables.createRow<AppRow>({
-      data: {
-        active: false,
-        createdAt: now,
-        createdBy: actorUserId,
-        endDate,
-        label,
-        notes: notes ?? "",
-        startDate,
-        status: "DRAFT",
-        updatedAt: now,
-        updatedBy: actorUserId,
-      },
-      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-      rowId: termId,
-      tableId: APPWRITE_TABLES.ieeeTerms,
-      transactionId,
-    });
-    const term = toIeeeTerm(row);
+  try {
+    return await runTablesTransaction(tables, async (transactionId) => {
+      const row = await tables.createRow<AppRow>({
+        data: {
+          active: false,
+          createdAt: now,
+          createdBy: actorUserId,
+          endDate,
+          label,
+          notes: notes ?? "",
+          startDate,
+          status: "DRAFT",
+          updatedAt: now,
+          updatedBy: actorUserId,
+        },
+        databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+        rowId: termId,
+        tableId: APPWRITE_TABLES.ieeeTerms,
+        transactionId,
+      });
+      const term = toIeeeTerm(row);
 
-    await writeAuditLog({
-      action: "IEEE_TERM_CREATED",
-      actorUserId,
-      metadata: { endDate, label, startDate },
-      targetId: term.$id,
-      targetType: "ieee_term",
-      transactionId,
-    });
+      await writeAuditLog({
+        action: "IEEE_TERM_CREATED",
+        actorUserId,
+        metadata: { endDate, label, startDate },
+        targetId: term.$id,
+        targetType: "ieee_term",
+        transactionId,
+      });
 
-    return term;
-  });
+      return term;
+    });
+  } catch (error) {
+    if (isAppwriteConflict(error)) {
+      throw new Error("An IEEE term with this label or date range already exists.");
+    }
+
+    throw error;
+  }
 }
 
 export async function updateIeeeTerm({
@@ -305,9 +313,20 @@ export async function updateIeeeTerm({
     }
 
     await writeAuditLog({
-      action: "IEEE_TERM_UPDATED",
+      action:
+        nextStatus === "CLOSED" ? "IEEE_TERM_CLOSED" : "IEEE_TERM_UPDATED",
       actorUserId,
-      metadata: { endDate, label, startDate, status: nextStatus },
+      metadata:
+        nextStatus === "CLOSED"
+          ? {
+              after: { active: false, status: "CLOSED" },
+              before: {
+                active: currentTerm.active,
+                status: currentTerm.status,
+              },
+              reason: "ADMIN_CLOSED",
+            }
+          : { endDate, label, startDate, status: nextStatus },
       targetId: term.$id,
       targetType: "ieee_term",
       transactionId,

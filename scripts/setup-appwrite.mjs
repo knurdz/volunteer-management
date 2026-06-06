@@ -155,6 +155,12 @@ const tableDefinitions = [
     ],
     indexes: [
       ["ieee_terms_label_idx", ["label"]],
+      ["ieee_terms_label_unique", ["label"], TablesDBIndexType.Unique],
+      [
+        "ieee_terms_date_range_unique",
+        ["startDate", "endDate"],
+        TablesDBIndexType.Unique,
+      ],
       ["ieee_terms_active_idx", ["active"]],
       ["ieee_terms_status_idx", ["status"]],
       ["ieee_terms_start_idx", ["startDate"]],
@@ -351,14 +357,18 @@ async function main() {
 
     await waitForColumns(table.id);
 
-    for (const [indexId, columns] of table.indexes) {
+    for (const [
+      indexId,
+      columns,
+      indexType = TablesDBIndexType.Key,
+    ] of table.indexes) {
       await ignoreAlreadyExists(
         () =>
           tables.createIndex(
             databaseId,
             table.id,
             indexId,
-            TablesDBIndexType.Key,
+            indexType,
             columns,
           ),
         `index ${table.id}.${indexId}`,

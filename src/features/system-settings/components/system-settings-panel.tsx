@@ -15,6 +15,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
+  formatDisplayDate,
+  formatDisplayDateTime,
+} from "@/features/system-settings/lib/display";
+import {
   formatTermLabel,
   getSuggestedTermRange,
   isActiveTopBoardExclusion,
@@ -681,7 +685,7 @@ function TermsPanel({
                   </div>
                 </td>
                 <td className="px-4 py-4 text-text-secondary">
-                  {new Date(term.updatedAt).toLocaleDateString()}
+                  {formatDisplayDate(term.updatedAt)}
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-2">
@@ -1112,7 +1116,7 @@ function AuditPanel({
             {auditLogs.map((log) => (
               <tr key={log.$id}>
                 <td className="px-4 py-4 text-text-secondary">
-                  {new Date(log.createdAt).toLocaleString()}
+                  {formatDisplayDateTime(log.createdAt)}
                 </td>
                 <td className="px-4 py-4">
                   <Badge tone="primary">{log.action}</Badge>

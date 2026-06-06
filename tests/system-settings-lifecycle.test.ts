@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppwriteException } from "node-appwrite";
 
 const mocks = vi.hoisted(() => ({
+  createRow: vi.fn(),
   createTransaction: vi.fn(),
   getRow: vi.fn(),
   listRows: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock("@/lib/env", () => ({
 vi.mock("@/server/appwrite", () => ({
   getAppwriteAdminServices: () => ({
     tables: {
+      createRow: mocks.createRow,
       createTransaction: mocks.createTransaction,
       getRow: mocks.getRow,
       listRows: mocks.listRows,
@@ -33,8 +36,10 @@ vi.mock("@/server/audit", () => ({
 
 import {
   activateIeeeTerm,
+  createIeeeTerm,
   listAuditLogs,
   reconcileActiveTermState,
+  updateIeeeTerm,
 } from "../src/features/system-settings/server/settings";
 
 function termRow({
@@ -85,6 +90,52 @@ describe("system settings lifecycle persistence", () => {
       $id: input.rowId,
       ...input.data,
     }));
+    mocks.createRow.mockImplementation(async (input) => ({
+      $id: input.rowId,
+      ...input.data,
+    }));
+  });
+
+  it("allows only one of two concurrent identical term creations", async () => {
+    const createdRanges = new Set<string>();
+
+    mocks.listRows.mockResolvedValue({ rows: [], total: 0 });
+    mocks.createTransaction
+      .mockResolvedValueOnce({ $id: "transaction-1" })
+      .mockResolvedValueOnce({ $id: "transaction-2" });
+    mocks.createRow.mockImplementation(async (input) => {
+      const uniqueRange = `${input.data.label}:${input.data.startDate}:${input.data.endDate}`;
+
+      if (createdRanges.has(uniqueRange)) {
+        throw new AppwriteException("Unique index conflict.", 409);
+      }
+
+      createdRanges.add(uniqueRange);
+      await Promise.resolve();
+
+      return { $id: input.rowId, ...input.data };
+    });
+
+    const input = {
+      actorUserId: "admin-1",
+      endDate: "2026-09-30",
+      label: "2025/26",
+      startDate: "2025-10-01",
+    };
+    const results = await Promise.allSettled([
+      createIeeeTerm(input),
+      createIeeeTerm(input),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({
+      reason: new Error(
+        "An IEEE term with this label or date range already exists.",
+      ),
+      status: "rejected",
+    });
+    expect(mocks.writeAuditLog).toHaveBeenCalledTimes(1);
   });
 
   it("audits the previous term when activation closes it automatically", async () => {
@@ -134,6 +185,62 @@ describe("system settings lifecycle persistence", () => {
           replacementTermId: nextTerm.$id,
         },
         targetId: previousTerm.$id,
+        transactionId: "transaction-1",
+      }),
+    );
+  });
+
+  it("audits an explicit Admin closure as a term closure", async () => {
+    const activeTerm = termRow({
+      active: true,
+      endDate: "2026-09-30",
+      id: "term-2025",
+      label: "2025/26",
+      startDate: "2025-10-01",
+      status: "ACTIVE",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    mocks.listRows.mockResolvedValue({ rows: [activeTerm], total: 1 });
+    mocks.getRow.mockImplementation(async (_databaseId, _tableId, rowId) => {
+      if (rowId === activeTerm.$id) {
+        return activeTerm;
+      }
+
+      return {
+        $id: "active_term_id",
+        key: "active_term_id",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        updatedBy: "admin-1",
+        value: activeTerm.$id,
+      };
+    });
+    mocks.updateRow.mockImplementation(async (input) => {
+      if (input.tableId === "ieee_terms") {
+        return { ...activeTerm, ...input.data };
+      }
+
+      return { $id: input.rowId, ...input.data };
+    });
+
+    await updateIeeeTerm({
+      actorUserId: "admin-1",
+      endDate: activeTerm.endDate,
+      label: activeTerm.label,
+      notes: activeTerm.notes,
+      startDate: activeTerm.startDate,
+      status: "CLOSED",
+      termId: activeTerm.$id,
+    });
+
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "IEEE_TERM_CLOSED",
+        metadata: {
+          after: { active: false, status: "CLOSED" },
+          before: { active: true, status: "ACTIVE" },
+          reason: "ADMIN_CLOSED",
+        },
+        targetId: activeTerm.$id,
         transactionId: "transaction-1",
       }),
     );
