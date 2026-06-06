@@ -206,7 +206,7 @@ const tableDefinitions = [
       ["event_committees_event_idx", ["event_id"]],
       ["event_committees_user_idx", ["user_id"]],
       ["event_committees_event_role_idx", ["event_id", "role"]],
-      ["event_committees_event_user_idx", ["event_id", "user_id"], "unique"],
+      ["event_committees_event_user_idx", ["event_id", "user_id"]],
     ],
   },
 ];
