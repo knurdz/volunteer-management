@@ -39,6 +39,6 @@ describe("mock conclusion repository", () => {
       status: "APPROVED",
     });
 
-    expect(assertConclusionReportExportable(submitted.$id).status).toBe("APPROVED");
+    expect(assertConclusionReportExportable(submitted.$id).report.status).toBe("APPROVED");
   });
 });

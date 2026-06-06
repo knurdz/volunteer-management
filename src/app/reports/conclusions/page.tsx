@@ -8,12 +8,12 @@ export const dynamic = "force-dynamic";
 
 export default async function ConclusionsPage() {
   const user = await getCurrentUser();
-  const data = getReportsPageData();
 
   if (!user) {
     return null;
   }
 
+  const data = await getReportsPageData(user);
   const draftEvent = data.events.find((event) => event.status === "PENDING_CONCLUSION");
   const draftReport =
     data.reports.find((report) => report.eventId === draftEvent?.eventId) ?? null;
@@ -23,14 +23,12 @@ export default async function ConclusionsPage() {
       <PageHeader
         eyebrow="Reporting"
         title="Conclusion Reports"
-        description="Structured text-only event conclusion forms connected to mock event records."
+        description="Structured text-only event conclusion forms backed by Appwrite records."
       />
 
       <ReportsNav isAdmin={user.isAdmin} />
 
       <ConclusionsPageContent
-        actorName={user.authUser.name || user.authUser.email}
-        actorUserId={user.authUser.id}
         events={data.events.filter((event) => event.status === "PENDING_CONCLUSION")}
         initialReport={draftReport}
         initialReports={data.reports}

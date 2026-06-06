@@ -17,18 +17,19 @@ export const dynamic = "force-dynamic";
 
 export default async function VolunteersPage() {
   const user = await getCurrentUser();
-  const data = getReportsPageData();
 
   if (!user) {
     return null;
   }
+
+  const data = await getReportsPageData(user);
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Reporting"
         title="Volunteer Profile Exports"
-        description="Export volunteer summaries as formal PDFs. Points appear when mock ledger data exists."
+        description="Export volunteer summaries as formal PDFs from Appwrite profile and role data."
       />
 
       <ReportsNav isAdmin={user.isAdmin} />
@@ -40,7 +41,7 @@ export default async function VolunteersPage() {
             Volunteer profiles
           </CardTitle>
           <CardDescription>
-            Identity, roles, participation, recommendations, and optional Thesaru points.
+            Identity, roles, participation, and optional Thesaru points when available.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -81,7 +82,9 @@ export default async function VolunteersPage() {
                       {volunteer.participations.length === 1 ? "" : "s"}
                     </td>
                     <td className="px-4 py-3 text-text-secondary">
-                      {volunteer.recommendations.length}
+                      {volunteer.recommendations.length > 0
+                        ? volunteer.recommendations.length
+                        : "Unavailable"}
                     </td>
                     <td className="px-4 py-3">
                       {volunteer.pointsLedger ? (

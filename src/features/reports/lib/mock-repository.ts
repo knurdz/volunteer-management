@@ -51,6 +51,7 @@ export function getReportApproval(reportId: string) {
 
 export function createConclusionReport(
   input: CreateConclusionReportInput & {
+    eventTitle: string;
     submittedBy: string;
     submittedByName: string;
   },
@@ -64,7 +65,13 @@ export function createConclusionReport(
   const now = new Date().toISOString();
   const report: ConclusionReport = {
     $id: `report-${crypto.randomUUID().slice(0, 8)}`,
-    content: input.content,
+    content: {
+      attendanceNotes: input.content?.attendanceNotes ?? "",
+      challenges: input.content?.challenges ?? "",
+      objectives: input.content?.objectives ?? "",
+      outcomes: input.content?.outcomes ?? "",
+      recommendations: input.content?.recommendations ?? "",
+    },
     createdAt: now,
     eventId: input.eventId,
     eventTitle: input.eventTitle,
@@ -90,6 +97,10 @@ export function updateConclusionReport(
 
   if (input.status && !canTransitionReportStatus(report.status, input.status)) {
     throw new Error(`Cannot move report from ${report.status} to ${input.status}.`);
+  }
+
+  if (input.content && report.status !== "DRAFT" && report.status !== "REJECTED") {
+    throw new Error("Submitted and approved reports cannot be edited.");
   }
 
   if (input.status === "SUBMITTED" && !canSubmitReport(report)) {
@@ -137,7 +148,13 @@ export function reviewConclusionReport(
   }
 
   const nextStatus = input.status;
-  const updated = updateConclusionReport(reportId, { status: nextStatus });
+  const updated: ConclusionReport = {
+    ...report,
+    status: nextStatus,
+    updatedAt: new Date().toISOString(),
+  };
+
+  reports = reports.map((entry) => (entry.$id === reportId ? updated : entry));
   const approval: ReportApproval = {
     $id: `approval-${crypto.randomUUID().slice(0, 8)}`,
     reportId,
@@ -167,5 +184,11 @@ export function assertConclusionReportExportable(reportId: string) {
     throw new Error("Conclusion report exports are available only after approval.");
   }
 
-  return report;
+  const approval = getReportApproval(reportId);
+
+  if (!approval || approval.status !== "APPROVED") {
+    throw new Error("A matching approval record is required before export.");
+  }
+
+  return { approval, report };
 }

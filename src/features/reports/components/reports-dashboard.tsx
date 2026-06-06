@@ -33,20 +33,16 @@ import { ExportActions } from "@/features/reports/components/export-actions";
 type DashboardMode = "summaries" | "conclusions" | "approval" | "recognition" | "volunteers";
 
 type ReportsDashboardProps = {
-  actorName: string;
-  actorUserId: string;
   events: MockEvent[];
   hallOfFame: HallOfFameEntry[];
   initialReports: ConclusionReport[];
   isAdmin: boolean;
   summaries: EventSummary[];
-  volunteerOfTheMonth: VolunteerOfTheMonth;
+  volunteerOfTheMonth: VolunteerOfTheMonth | null;
   volunteers: VolunteerProfileExport[];
 };
 
 export function ReportsDashboard({
-  actorName,
-  actorUserId,
   events,
   hallOfFame,
   initialReports,
@@ -141,8 +137,6 @@ export function ReportsDashboard({
           </CardHeader>
           <CardContent>
             <ConclusionReportForm
-              actorName={actorName}
-              actorUserId={actorUserId}
               events={events.filter((event) => event.status === "PENDING_CONCLUSION")}
               initialReport={draftReport}
               onChange={(report) =>
@@ -167,11 +161,7 @@ export function ReportsDashboard({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ConclusionApprovalPanel
-              initialReports={reports}
-              reviewerName={actorName}
-              reviewerUserId={actorUserId}
-            />
+            <ConclusionApprovalPanel initialReports={reports} />
           </CardContent>
         </Card>
       ) : null}
@@ -185,15 +175,25 @@ export function ReportsDashboard({
                 Volunteer of the Month
               </CardTitle>
               <CardDescription>
-                {volunteerOfTheMonth.month} {volunteerOfTheMonth.year}
+                {volunteerOfTheMonth
+                  ? `${volunteerOfTheMonth.month} ${volunteerOfTheMonth.year}`
+                  : "Recognition data unavailable"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <p className="text-lg font-semibold text-text-primary">
-                {volunteerOfTheMonth.name}
-              </p>
-              <p className="text-text-secondary">{volunteerOfTheMonth.highlight}</p>
-              <Badge tone="success">{volunteerOfTheMonth.pointsEarned} points earned</Badge>
+              {volunteerOfTheMonth ? (
+                <>
+                  <p className="text-lg font-semibold text-text-primary">
+                    {volunteerOfTheMonth.name}
+                  </p>
+                  <p className="text-text-secondary">{volunteerOfTheMonth.highlight}</p>
+                  <Badge tone="success">{volunteerOfTheMonth.pointsEarned} points earned</Badge>
+                </>
+              ) : (
+                <p className="text-text-secondary">
+                  Volunteer of the Month will appear once the points ledger is connected.
+                </p>
+              )}
             </CardContent>
           </Card>
 

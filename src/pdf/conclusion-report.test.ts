@@ -22,4 +22,43 @@ describe("conclusion report pdf", () => {
     expect(result.buffer.byteLength).toBeGreaterThan(500);
     expect(result.buffer.subarray(0, 4).toString()).toBe("%PDF");
   });
+
+  it("falls back to a stable filename for non-latin identifiers", async () => {
+    const result = await buildConclusionReportPdf({
+      approvedAt: "2025-10-14T00:00:00.000Z",
+      content: {
+        attendanceNotes: "",
+        challenges: "",
+        objectives: "Objectives",
+        outcomes: "Outcomes",
+        recommendations: "Recommendations",
+      },
+      eventId: "සිංහල",
+      eventTitle: "Mora Event",
+      submittedAt: "2025-10-12T00:00:00.000Z",
+      submittedByName: "Test User",
+    });
+
+    expect(result.filename).toBe("conclusion-mora-event.pdf");
+  });
+
+  it("does not emit invalid date labels for malformed timestamps", async () => {
+    const result = await buildConclusionReportPdf({
+      approvedAt: "not-a-date",
+      content: {
+        attendanceNotes: "",
+        challenges: "",
+        objectives: "Objectives",
+        outcomes: "Outcomes",
+        recommendations: "Recommendations",
+      },
+      eventId: "event-1",
+      eventTitle: "Event 1",
+      submittedAt: "also-invalid",
+      submittedByName: "Test User",
+    });
+
+    expect(result.filename).toBe("conclusion-event-1.pdf");
+    expect(result.buffer.byteLength).toBeGreaterThan(500);
+  });
 });

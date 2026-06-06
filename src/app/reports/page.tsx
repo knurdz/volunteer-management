@@ -26,12 +26,12 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportsOverviewPage() {
   const user = await getCurrentUser();
-  const data = getReportsPageData();
 
   if (!user) {
     return null;
   }
 
+  const data = await getReportsPageData(user);
   const pendingApproval = data.reports.filter((report) => report.status === "SUBMITTED").length;
   const approvedReports = data.reports.filter((report) => report.status === "APPROVED").length;
 
@@ -40,7 +40,7 @@ export default async function ReportsOverviewPage() {
       <PageHeader
         eyebrow="Reporting"
         title="Reports & Exports"
-        description="Mock reporting views for event summaries, conclusion reports, recognition, and volunteer profile PDFs."
+        description="Event summaries, conclusion reports, recognition, and volunteer profile PDFs from Appwrite data."
       />
 
       <ReportsNav isAdmin={user.isAdmin} />
@@ -59,7 +59,7 @@ export default async function ReportsOverviewPage() {
               <CalendarDays className="size-4 text-primary" aria-hidden="true" />
               Event summaries
             </CardTitle>
-            <CardDescription>Mock internal event records with report status.</CardDescription>
+            <CardDescription>Events derived from active role assignments and report status.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {data.summaries.map((summary) => (
@@ -96,22 +96,32 @@ export default async function ReportsOverviewPage() {
               <Trophy className="size-4 text-primary" aria-hidden="true" />
               Recognition snapshot
             </CardTitle>
-            <CardDescription>Volunteer of the Month and Hall of Fame mock data.</CardDescription>
+            <CardDescription>Points-based recognition is not connected yet.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <div className="rounded-md border border-border bg-surface-subtle px-4 py-3">
-              <p className="font-medium text-text-secondary">Volunteer of the Month</p>
-              <p className="mt-1 text-lg font-semibold text-text-primary">
-                {data.volunteerOfTheMonth.name}
+            {data.volunteerOfTheMonth ? (
+              <div className="rounded-md border border-border bg-surface-subtle px-4 py-3">
+                <p className="font-medium text-text-secondary">Volunteer of the Month</p>
+                <p className="mt-1 text-lg font-semibold text-text-primary">
+                  {data.volunteerOfTheMonth.name}
+                </p>
+                <p className="mt-1 text-text-secondary">{data.volunteerOfTheMonth.highlight}</p>
+              </div>
+            ) : (
+              <p className="text-text-secondary">
+                Volunteer of the Month will appear once the points ledger is connected.
               </p>
-              <p className="mt-1 text-text-secondary">{data.volunteerOfTheMonth.highlight}</p>
-            </div>
-            <div>
-              <p className="font-medium text-text-secondary">Hall of Fame leader</p>
-              <p className="mt-1 text-text-primary">
-                {data.hallOfFame[0]?.name} — {data.hallOfFame[0]?.pointsEarned} points
-              </p>
-            </div>
+            )}
+            {data.hallOfFame[0] ? (
+              <div>
+                <p className="font-medium text-text-secondary">Hall of Fame leader</p>
+                <p className="mt-1 text-text-primary">
+                  {data.hallOfFame[0].name} — {data.hallOfFame[0].pointsEarned} points
+                </p>
+              </div>
+            ) : (
+              <p className="text-text-secondary">Hall of Fame rankings are not available yet.</p>
+            )}
             <Link className={buttonClasses()} href="/reports/recognition">
               View recognition
               <ArrowRight className="size-4" aria-hidden="true" />
@@ -136,7 +146,7 @@ export default async function ReportsOverviewPage() {
           />
         ) : null}
         <QuickLinkCard
-          description="Export volunteer identity, roles, participation, and points."
+          description="Export volunteer identity, roles, and participation."
           href="/reports/volunteers"
           icon={UsersRound}
           title="Volunteer PDFs"

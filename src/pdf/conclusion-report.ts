@@ -22,15 +22,11 @@ export async function buildConclusionReportPdf(
     { label: "Submitted by", value: input.submittedByName },
     {
       label: "Submitted on",
-      value: input.submittedAt
-        ? new Date(input.submittedAt).toLocaleDateString()
-        : "Not recorded",
+      value: formatDisplayDate(input.submittedAt) ?? "Not recorded",
     },
     {
       label: "Approved on",
-      value: input.approvedAt
-        ? new Date(input.approvedAt).toLocaleDateString()
-        : "Pending approval",
+      value: formatDisplayDate(input.approvedAt) ?? "Pending approval",
     },
   ]);
 
@@ -44,10 +40,42 @@ export async function buildConclusionReportPdf(
 
   return {
     buffer,
-    filename: `conclusion-${sanitizeFilename(input.eventId)}.pdf`,
+    filename: buildFilename("conclusion", input.eventId, input.eventTitle),
   };
 }
 
+function formatDisplayDate(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return date.toLocaleDateString();
+}
+
+function buildFilename(prefix: string, identifier: string, fallbackLabel: string) {
+  const sanitized = sanitizeFilename(identifier);
+
+  if (sanitized) {
+    return `${prefix}-${sanitized}.pdf`;
+  }
+
+  const fallback = sanitizeFilename(fallbackLabel);
+  return fallback ? `${prefix}-${fallback}.pdf` : `${prefix}-report.pdf`;
+}
+
 function sanitizeFilename(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const ascii = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return ascii;
 }

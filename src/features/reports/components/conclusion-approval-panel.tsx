@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, RotateCcw, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,10 @@ import {
   canExportConclusionReport,
   reportStatusTone,
 } from "@/features/reports/lib/approval-rules";
+import {
+  reopenConclusionReportRequest,
+  reviewConclusionReportRequest,
+} from "@/features/reports/lib/api-client";
 import type { ConclusionReport } from "@/features/reports/types";
 import { ExportActions } from "@/features/reports/components/export-actions";
 
@@ -17,15 +21,9 @@ const inputClasses =
 
 type ConclusionApprovalPanelProps = {
   initialReports: ConclusionReport[];
-  reviewerName: string;
-  reviewerUserId: string;
 };
 
-export function ConclusionApprovalPanel({
-  initialReports,
-  reviewerName,
-  reviewerUserId,
-}: ConclusionApprovalPanelProps) {
+export function ConclusionApprovalPanel({ initialReports }: ConclusionApprovalPanelProps) {
   const [reports, setReports] = useState(initialReports);
   const [selectedId, setSelectedId] = useState(
     initialReports.find((report) => report.status === "SUBMITTED")?.$id ??
@@ -49,13 +47,8 @@ export function ConclusionApprovalPanel({
     setStatus("idle");
 
     try {
-      const { reviewConclusionReportRecord } = await import(
-        "@/features/reports/server/conclusion-service"
-      );
-      const { report } = reviewConclusionReportRecord(selectedReport.$id, {
+      const { report } = await reviewConclusionReportRequest(selectedReport.$id, {
         reviewNote: reviewNote || undefined,
-        reviewedBy: reviewerUserId,
-        reviewedByName: reviewerName,
         status: nextStatus,
       });
 
@@ -68,6 +61,30 @@ export function ConclusionApprovalPanel({
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Review failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function reopen() {
+    if (!selectedReport || selectedReport.status === "DRAFT") {
+      return;
+    }
+
+    setPending(true);
+    setStatus("idle");
+
+    try {
+      const report = await reopenConclusionReportRequest(selectedReport.$id);
+
+      setReports((current) =>
+        current.map((entry) => (entry.$id === report.$id ? report : entry)),
+      );
+      setStatus("success");
+      setMessage("Report reopened to draft.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "Reopen failed.");
     } finally {
       setPending(false);
     }
@@ -174,6 +191,15 @@ export function ConclusionApprovalPanel({
                   Reject
                 </Button>
               </div>
+            </div>
+          ) : null}
+
+          {selectedReport.status !== "DRAFT" ? (
+            <div className="mt-4">
+              <Button disabled={pending} onClick={reopen} type="button" variant="secondary">
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Reopen to draft
+              </Button>
             </div>
           ) : null}
         </section>

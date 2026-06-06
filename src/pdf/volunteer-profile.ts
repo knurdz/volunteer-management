@@ -32,7 +32,7 @@ export async function buildVolunteerProfilePdf(
 
   return {
     buffer,
-    filename: `volunteer-${sanitizeFilename(input.name)}.pdf`,
+    filename: buildFilename("volunteer", input.name),
   };
 }
 
@@ -61,7 +61,7 @@ function renderParticipationSection(
     doc
       .fontSize(pdfFonts.caption)
       .fillColor(pdfTheme.muted)
-      .text(`Assigned ${new Date(participation.assignedAt).toLocaleDateString()}`);
+      .text(`Assigned ${formatDisplayDate(participation.assignedAt) ?? "Date unavailable"}`);
     doc.moveDown(0.5);
   }
 
@@ -126,11 +126,32 @@ function renderPointsSection(
     doc
       .fontSize(pdfFonts.caption)
       .fillColor(pdfTheme.muted)
-      .text(`Awarded ${new Date(entry.awardedAt).toLocaleDateString()}`);
+      .text(`Awarded ${formatDisplayDate(entry.awardedAt) ?? "Date unavailable"}`);
     doc.moveDown(0.4);
   }
 }
 
+function formatDisplayDate(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toLocaleDateString();
+}
+
+function buildFilename(prefix: string, label: string) {
+  const sanitized = sanitizeFilename(label);
+  return sanitized ? `${prefix}-${sanitized}.pdf` : `${prefix}-profile.pdf`;
+}
+
 function sanitizeFilename(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const ascii = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return ascii;
 }

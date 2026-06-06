@@ -1,22 +1,67 @@
 "use server";
 
-import { getEventRoleDisplayName } from "@/features/access-control/lib/rules";
+import { getEventRoleDisplayName, hasEventRole } from "@/features/access-control/lib/rules";
+import { requireAuth } from "@/features/access-control/server/current-user";
 import {
   assertConclusionReportExportable,
-  getReportApproval,
+  canExportConclusionReportPdf,
 } from "@/features/reports/server/conclusion-service";
-import { assertVolunteerProfileExportable } from "@/features/reports/server/volunteer-profile";
+import { getVolunteerProfile } from "@/features/reports/server/volunteer-profile";
 import { buildConclusionReportPdf, buildVolunteerProfilePdf } from "@/pdf";
 
+const EVENT_LEAD_ROLES = ["Chair", "Vice Chair"] as const;
+
+function formatPdfDate(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+async function assertVolunteerProfileExportable(userId: string) {
+  const profile = await getVolunteerProfile(userId);
+
+  if (!profile) {
+    throw new Error("Volunteer profile was not found.");
+  }
+
+  return profile;
+}
+
+function canExportVolunteerProfilePdf(
+  user: Awaited<ReturnType<typeof requireAuth>>,
+  targetUserId: string,
+  profile: Awaited<ReturnType<typeof assertVolunteerProfileExportable>>,
+) {
+  if (user.isAdmin || user.authUser.id === targetUserId) {
+    return true;
+  }
+
+  const sharedEventIds = new Set(
+    profile.participations.map((participation) => participation.eventId),
+  );
+
+  return [...sharedEventIds].some((eventId) =>
+    hasEventRole(user, eventId, [...EVENT_LEAD_ROLES]),
+  );
+}
+
 export async function exportConclusionReportPdfAction(reportId: string) {
-  const report = assertConclusionReportExportable(reportId);
-  const approval = getReportApproval(reportId);
+  const user = await requireAuth();
+  const { approval, report } = await assertConclusionReportExportable(reportId);
+
+  if (!canExportConclusionReportPdf(user, report)) {
+    throw new Error("You do not have access to export this report.");
+  }
+
   const result = await buildConclusionReportPdf({
-    approvedAt: approval?.reviewedAt,
+    approvedAt: formatPdfDate(approval.reviewedAt),
     content: report.content,
     eventId: report.eventId,
     eventTitle: report.eventTitle,
-    submittedAt: report.submittedAt,
+    submittedAt: formatPdfDate(report.submittedAt),
     submittedByName: report.submittedByName,
   });
 
@@ -27,7 +72,13 @@ export async function exportConclusionReportPdfAction(reportId: string) {
 }
 
 export async function exportVolunteerProfilePdfAction(userId: string) {
-  const profile = assertVolunteerProfileExportable(userId);
+  const user = await requireAuth();
+  const profile = await assertVolunteerProfileExportable(userId);
+
+  if (!canExportVolunteerProfilePdf(user, userId, profile)) {
+    throw new Error("You do not have access to export this volunteer profile.");
+  }
+
   const result = await buildVolunteerProfilePdf({
     googleEmail: profile.googleEmail,
     name: profile.name,

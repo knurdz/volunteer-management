@@ -16,18 +16,19 @@ export const dynamic = "force-dynamic";
 
 export default async function RecognitionPage() {
   const user = await getCurrentUser();
-  const data = getReportsPageData();
 
   if (!user) {
     return null;
   }
+
+  const data = await getReportsPageData(user);
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Reporting"
         title="Recognition"
-        description="Volunteer of the Month and yearly Hall of Fame views using mock points data."
+        description="Volunteer of the Month and Hall of Fame views will appear once points data is connected."
       />
 
       <ReportsNav isAdmin={user.isAdmin} />
@@ -39,16 +40,22 @@ export default async function RecognitionPage() {
               <Award className="size-4 text-primary" aria-hidden="true" />
               Volunteer of the Month
             </CardTitle>
-            <CardDescription>
-              {data.volunteerOfTheMonth.month} {data.volunteerOfTheMonth.year}
-            </CardDescription>
+            <CardDescription>Recognition data unavailable</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <p className="text-xl font-semibold text-text-primary">
-              {data.volunteerOfTheMonth.name}
-            </p>
-            <p className="text-text-secondary">{data.volunteerOfTheMonth.highlight}</p>
-            <Badge tone="success">{data.volunteerOfTheMonth.pointsEarned} points earned</Badge>
+            {data.volunteerOfTheMonth ? (
+              <>
+                <p className="text-xl font-semibold text-text-primary">
+                  {data.volunteerOfTheMonth.name}
+                </p>
+                <p className="text-text-secondary">{data.volunteerOfTheMonth.highlight}</p>
+                <Badge tone="success">{data.volunteerOfTheMonth.pointsEarned} points earned</Badge>
+              </>
+            ) : (
+              <p className="text-text-secondary">
+                Volunteer of the Month will appear here once the points ledger is connected.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -58,35 +65,41 @@ export default async function RecognitionPage() {
               <Trophy className="size-4 text-primary" aria-hidden="true" />
               Yearly Hall of Fame
             </CardTitle>
-            <CardDescription>IEEE term {data.hallOfFame[0]?.term.label}</CardDescription>
+            <CardDescription>Recognition data unavailable</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="min-w-[520px] divide-y divide-border text-left text-sm">
-                <thead className="bg-surface-muted text-text-secondary">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Rank</th>
-                    <th className="px-4 py-3 font-semibold">Volunteer</th>
-                    <th className="px-4 py-3 font-semibold">Term</th>
-                    <th className="px-4 py-3 font-semibold">Points</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border bg-surface">
-                  {data.hallOfFame.map((entry) => (
-                    <tr key={entry.userId}>
-                      <td className="px-4 py-3 font-medium text-text-primary">
-                        #{entry.rank}
-                      </td>
-                      <td className="px-4 py-3 text-text-primary">{entry.name}</td>
-                      <td className="px-4 py-3 text-text-secondary">{entry.term.label}</td>
-                      <td className="px-4 py-3">
-                        <Badge tone="primary">{entry.pointsEarned}</Badge>
-                      </td>
+            {data.hallOfFame.length > 0 ? (
+              <div className="overflow-x-auto rounded-md border border-border">
+                <table className="min-w-[520px] divide-y divide-border text-left text-sm">
+                  <thead className="bg-surface-muted text-text-secondary">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Rank</th>
+                      <th className="px-4 py-3 font-semibold">Volunteer</th>
+                      <th className="px-4 py-3 font-semibold">Term</th>
+                      <th className="px-4 py-3 font-semibold">Points</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-border bg-surface">
+                    {data.hallOfFame.map((entry) => (
+                      <tr key={entry.userId}>
+                        <td className="px-4 py-3 font-medium text-text-primary">
+                          #{entry.rank}
+                        </td>
+                        <td className="px-4 py-3 text-text-primary">{entry.name}</td>
+                        <td className="px-4 py-3 text-text-secondary">{entry.term.label}</td>
+                        <td className="px-4 py-3">
+                          <Badge tone="primary">{entry.pointsEarned}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-text-secondary">
+                Hall of Fame rankings will appear here once the points ledger is connected.
+              </p>
+            )}
           </CardContent>
         </Card>
       </section>

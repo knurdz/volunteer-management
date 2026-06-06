@@ -26,6 +26,10 @@ export function canApproveReport(report: Pick<ConclusionReport, "status">) {
   return report.status === "SUBMITTED";
 }
 
+export function canEditReportContent(report: Pick<ConclusionReport, "status">) {
+  return report.status === "DRAFT" || report.status === "REJECTED";
+}
+
 export function canExportConclusionReport(report: Pick<ConclusionReport, "status">) {
   return report.status === "APPROVED";
 }

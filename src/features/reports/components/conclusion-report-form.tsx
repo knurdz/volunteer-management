@@ -5,11 +5,15 @@ import { ClipboardList, Save, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  canEditReportContent,
   canExportConclusionReport,
   canSubmitReport,
   reportStatusTone,
 } from "@/features/reports/lib/approval-rules";
-import { createConclusionReportSchema } from "@/features/reports/lib/validation";
+import {
+  createConclusionReportRequest,
+  updateConclusionReportRequest,
+} from "@/features/reports/lib/api-client";
 import type { ConclusionReport, MockEvent } from "@/features/reports/types";
 import { ExportActions } from "@/features/reports/components/export-actions";
 
@@ -19,16 +23,12 @@ const inputClasses =
 const textareaClasses = `${inputClasses} min-h-[96px] resize-y`;
 
 type ConclusionReportFormProps = {
-  actorName: string;
-  actorUserId: string;
   events: MockEvent[];
   initialReport?: ConclusionReport | null;
   onChange: (report: ConclusionReport) => void;
 };
 
 export function ConclusionReportForm({
-  actorName,
-  actorUserId,
   events,
   initialReport,
   onChange,
@@ -49,44 +49,29 @@ export function ConclusionReportForm({
   const [pending, setPending] = useState(false);
 
   const selectedEvent = events.find((event) => event.eventId === eventId);
+  const contentEditable = !report || canEditReportContent(report);
 
-  async function persist(nextStatus?: ConclusionReport["status"]) {
+  async function persist(nextStatus?: "SUBMITTED") {
     setPending(true);
     setStatus("idle");
 
     try {
-      const eventTitle = selectedEvent?.eventTitle ?? eventId;
       let nextReport = report;
 
       if (!nextReport) {
-        const parsed = createConclusionReportSchema.parse({
+        nextReport = await createConclusionReportRequest({
           content,
           eventId,
-          eventTitle,
-        });
-        const { createConclusionReportRecord } = await import(
-          "@/features/reports/server/conclusion-service"
-        );
-        nextReport = createConclusionReportRecord({
-          ...parsed,
-          submittedBy: actorUserId,
-          submittedByName: actorName,
         });
       } else {
-        const { updateConclusionReportRecord } = await import(
-          "@/features/reports/server/conclusion-service"
-        );
-        nextReport = updateConclusionReportRecord(nextReport.$id, {
-          content,
+        nextReport = await updateConclusionReportRequest(nextReport.$id, {
+          ...(contentEditable ? { content } : {}),
           status: nextStatus,
         });
       }
 
-      if (nextStatus === "SUBMITTED" && nextReport) {
-        const { updateConclusionReportRecord } = await import(
-          "@/features/reports/server/conclusion-service"
-        );
-        nextReport = updateConclusionReportRecord(nextReport.$id, {
+      if (nextStatus === "SUBMITTED" && nextReport.status !== "SUBMITTED") {
+        nextReport = await updateConclusionReportRequest(nextReport.$id, {
           status: "SUBMITTED",
         });
       }
@@ -130,6 +115,7 @@ export function ConclusionReportForm({
           <span className="font-medium text-text-secondary">Event</span>
           <select
             className={inputClasses}
+            disabled={Boolean(report)}
             onChange={(event) => setEventId(event.target.value)}
             value={eventId}
           >
@@ -144,21 +130,25 @@ export function ConclusionReportForm({
 
       <div className="grid gap-4">
         <Field
+          disabled={!contentEditable}
           label="Objectives"
           onChange={(value) => setContent((current) => ({ ...current, objectives: value }))}
           value={content.objectives}
         />
         <Field
+          disabled={!contentEditable}
           label="Outcomes"
           onChange={(value) => setContent((current) => ({ ...current, outcomes: value }))}
           value={content.outcomes}
         />
         <Field
+          disabled={!contentEditable}
           label="Challenges"
           onChange={(value) => setContent((current) => ({ ...current, challenges: value }))}
           value={content.challenges}
         />
         <Field
+          disabled={!contentEditable}
           label="Recommendations"
           onChange={(value) =>
             setContent((current) => ({ ...current, recommendations: value }))
@@ -166,6 +156,7 @@ export function ConclusionReportForm({
           value={content.recommendations}
         />
         <Field
+          disabled={!contentEditable}
           label="Attendance notes"
           onChange={(value) =>
             setContent((current) => ({ ...current, attendanceNotes: value }))
@@ -187,19 +178,23 @@ export function ConclusionReportForm({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Button disabled={pending} onClick={() => persist()} type="button">
-          <Save className="size-4" aria-hidden="true" />
-          Save draft
-        </Button>
-        <Button
-          disabled={pending || !canSubmitReport(draftCandidate)}
-          onClick={() => persist("SUBMITTED")}
-          type="button"
-          variant="primary"
-        >
-          <Send className="size-4" aria-hidden="true" />
-          Submit for approval
-        </Button>
+        {contentEditable ? (
+          <Button disabled={pending} onClick={() => persist()} type="button">
+            <Save className="size-4" aria-hidden="true" />
+            Save draft
+          </Button>
+        ) : null}
+        {contentEditable ? (
+          <Button
+            disabled={pending || !canSubmitReport(draftCandidate)}
+            onClick={() => persist("SUBMITTED")}
+            type="button"
+            variant="primary"
+          >
+            <Send className="size-4" aria-hidden="true" />
+            Submit for approval
+          </Button>
+        ) : null}
         {report && canExportConclusionReport(report) ? (
           <ExportActions kind="conclusion" reportId={report.$id} />
         ) : report ? (
@@ -216,10 +211,12 @@ export function ConclusionReportForm({
 }
 
 function Field({
+  disabled,
   label,
   onChange,
   value,
 }: {
+  disabled?: boolean;
   label: string;
   onChange: (value: string) => void;
   value: string;
@@ -229,6 +226,7 @@ function Field({
       <span className="font-medium text-text-secondary">{label}</span>
       <textarea
         className={textareaClasses}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />

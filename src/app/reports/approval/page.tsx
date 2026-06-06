@@ -26,7 +26,7 @@ export default async function ApprovalPage() {
     redirect("/reports");
   }
 
-  const data = getReportsPageData();
+  const data = await getReportsPageData(user);
 
   return (
     <div className="space-y-6">
@@ -49,11 +49,7 @@ export default async function ApprovalPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ConclusionApprovalPanel
-            initialReports={data.reports}
-            reviewerName={user.authUser.name || user.authUser.email}
-            reviewerUserId={user.authUser.id}
-          />
+          <ConclusionApprovalPanel initialReports={data.reports} />
         </CardContent>
       </Card>
     </div>

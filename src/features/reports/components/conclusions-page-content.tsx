@@ -15,14 +15,10 @@ import type { ConclusionReport, MockEvent } from "@/features/reports/types";
 import { ClipboardList } from "lucide-react";
 
 export function ConclusionsPageContent({
-  actorName,
-  actorUserId,
   events,
   initialReport,
   initialReports,
 }: {
-  actorName: string;
-  actorUserId: string;
   events: MockEvent[];
   initialReport: ConclusionReport | null;
   initialReports: ConclusionReport[];
@@ -55,8 +51,6 @@ export function ConclusionsPageContent({
         </CardHeader>
         <CardContent>
           <ConclusionReportForm
-            actorName={actorName}
-            actorUserId={actorUserId}
             events={events}
             initialReport={initialReport}
             onChange={handleReportChange}
@@ -66,8 +60,8 @@ export function ConclusionsPageContent({
 
       <Card>
         <CardHeader>
-          <CardTitle>All mock reports</CardTitle>
-          <CardDescription>Existing conclusion reports in the in-memory mock store.</CardDescription>
+          <CardTitle>All conclusion reports</CardTitle>
+          <CardDescription>Existing conclusion reports stored in Appwrite.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-md border border-border">
