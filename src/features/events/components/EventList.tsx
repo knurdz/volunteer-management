@@ -45,7 +45,7 @@ export function EventList({
         }
 
         if (!cancelled) {
-          setEvents(payload.events ?? []);
+          setEvents(payload.events ?? payload.results ?? []);
         }
       } catch {
         if (!cancelled) {

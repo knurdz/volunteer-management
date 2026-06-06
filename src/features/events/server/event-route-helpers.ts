@@ -7,17 +7,17 @@ import {
   getEventPermissions,
   isEventVisibleToUser,
 } from "@/features/events/lib/event-permissions";
-import { getUserCommitteeRole } from "@/features/events/server/event-service";
+import { getUserEventRole } from "@/features/events/server/event-roles.server";
 import type { Event, EventRole, EventStatus } from "@/features/events/types";
 import { EVENT_STATUSES } from "@/features/events/types";
 import { NextResponse } from "next/server";
 import { jsonError } from "@/server/errors";
 
-export const VOLUNTEER_VISIBLE_STATUSES: EventStatus[] = ["published", "ongoing", "closed"];
-
-export function resolveUserSbRole(user: SessionUser) {
-  return user.isAdmin ? "Admin" : "";
-}
+export const VOLUNTEER_VISIBLE_STATUSES: EventStatus[] = [
+  "published",
+  "ongoing",
+  "pending_conclusion",
+];
 
 export function canCreateEvent(user: SessionUser) {
   return user.isAdmin || hasSbRole(user, ["ExCom", "SB Lead"]);
@@ -39,35 +39,34 @@ export function parseValidationBody<T>(schema: z.ZodType<T>, data: unknown) {
 }
 
 export async function getEventUserContext(eventId: string, user: SessionUser) {
-  const userSbRole = resolveUserSbRole(user);
-  const userCommitteeRole = await getUserCommitteeRole(eventId, user.authUser.id);
+  const userEventRole = await getUserEventRole(user.authUser.id, eventId);
 
-  return { userCommitteeRole, userSbRole };
+  return { userEventRole };
 }
 
 export function isEventVisible(
   user: SessionUser,
   event: Event,
-  userCommitteeRole?: EventRole | null,
+  userEventRole?: EventRole | null,
 ) {
   return isEventVisibleToUser(
     user.authUser.id,
-    resolveUserSbRole(user),
+    user.isAdmin,
     event,
-    userCommitteeRole,
+    userEventRole,
   );
 }
 
 export function getPermissionsForUser(
   user: SessionUser,
   event: Event,
-  userCommitteeRole?: EventRole | null,
+  userEventRole?: EventRole | null,
 ) {
   return getEventPermissions(
     user.authUser.id,
-    resolveUserSbRole(user),
+    user.isAdmin,
     event,
-    userCommitteeRole,
+    userEventRole,
   );
 }
 
@@ -75,19 +74,19 @@ export function canChangeEventStatus({
   event,
   newStatus,
   user,
-  userCommitteeRole,
+  userEventRole,
 }: {
   event: Event;
   newStatus: EventStatus;
   user: SessionUser;
-  userCommitteeRole?: EventRole | null;
+  userEventRole?: EventRole | null;
 }) {
   if (user.isAdmin) {
     return true;
   }
 
   return (
-    userCommitteeRole === "chair" &&
+    userEventRole === "Chair" &&
     event.status === "ongoing" &&
     newStatus === "pending_conclusion"
   );
@@ -96,6 +95,10 @@ export function canChangeEventStatus({
 export function requireVerifiedVolunteer(user: SessionUser | null) {
   if (!user) {
     return jsonError("Authentication required.", 401);
+  }
+
+  if (user.isAdmin) {
+    return null;
   }
 
   if (!canVolunteer(user.profile)) {

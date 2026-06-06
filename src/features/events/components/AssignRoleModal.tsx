@@ -8,12 +8,12 @@ import { AssignEventRoleInputSchema, type EventRole } from "@/features/events/ty
 import { cn } from "@/lib/utils";
 
 const CHAIR_ASSIGNABLE_ROLES: EventRole[] = [
-  "vice_chair",
-  "committee_lead",
-  "committee_member",
+  "Vice Chair",
+  "Committee Lead",
+  "Committee Member",
 ];
 
-const ADMIN_ASSIGNABLE_ROLES: EventRole[] = ["chair", ...CHAIR_ASSIGNABLE_ROLES];
+const ADMIN_ASSIGNABLE_ROLES: EventRole[] = ["Chair", ...CHAIR_ASSIGNABLE_ROLES];
 
 export function AssignRoleModal({
   currentUserIsAdmin,
@@ -35,7 +35,7 @@ export function AssignRoleModal({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const committeeRequired = role === "committee_lead" || role === "committee_member";
+  const committeeRequired = role === "Committee Lead" || role === "Committee Member";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -127,10 +127,7 @@ export function AssignRoleModal({
             >
               {availableRoles.map((option) => (
                 <option key={option} value={option}>
-                  {option
-                    .split("_")
-                    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-                    .join(" ")}
+                  {option}
                 </option>
               ))}
             </select>

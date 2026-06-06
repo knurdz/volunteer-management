@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import { requireVerifiedVolunteer } from "@/features/events/server/event-route-helpers";
-import { getUserEventRole } from "@/features/events/server/committee-service";
+import { getUserEventRoleAssignment } from "@/features/events/server/event-roles.server";
 import { getEventById } from "@/features/events/server/event-service";
-import { jsonError } from "@/server/errors";
+import { jsonError, routeErrorStatus } from "@/server/errors";
 
 type RouteContext = {
   params: Promise<{ eventId: string }>;
@@ -26,12 +26,12 @@ export async function GET(_request: Request, context: RouteContext) {
       return jsonError("Event was not found.", 404);
     }
 
-    const committee = await getUserEventRole(user!.authUser.id, eventId);
-    return NextResponse.json({ committee });
+    const assignment = await getUserEventRoleAssignment(user!.authUser.id, eventId);
+    return NextResponse.json({ assignment, committee: assignment });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Failed to fetch your event role.",
-      400,
+      routeErrorStatus(error),
     );
   }
 }

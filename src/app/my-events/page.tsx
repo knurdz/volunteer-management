@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
-import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import { MyEvents } from "@/features/events/components/MyEvents";
-import { getEventsForUser } from "@/features/events/server/committee-service";
+import { getEventsForUser } from "@/features/events/server/event-roles.server";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +13,7 @@ export default async function MyEventsPage() {
     redirect("/login");
   }
 
-  if (!canVolunteer(user.profile)) {
+  if (!user.isAdmin && !user.profile.uomVerified) {
     redirect("/verify-uom");
   }
 

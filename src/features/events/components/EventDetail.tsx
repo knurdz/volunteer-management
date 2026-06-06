@@ -14,6 +14,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
+import type { EventRoleAssignment } from "@/features/access-control/types";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -29,20 +30,13 @@ import { canRemoveCommitteeRole } from "@/features/events/lib/committee-permissi
 import {
   formatConclusionStatus,
   formatEventDate,
-  formatEventRole,
   formatEventStatus,
   getAvailableStatusTransitions,
   getConclusionStatusBadgeTone,
   getEventStatusBadgeClassName,
   getEventStatusBadgeTone,
 } from "@/features/events/lib/event-ui";
-import type {
-  Event,
-  EventCommittee,
-  EventPermissions,
-  EventRole,
-  EventStatus,
-} from "@/features/events/types";
+import type { Event, EventPermissions, EventRole, EventStatus } from "@/features/events/types";
 import { EVENT_STATUSES } from "@/features/events/types";
 import { cn } from "@/lib/utils";
 
@@ -55,24 +49,32 @@ const LIFECYCLE_LABELS: Record<EventStatus, string> = {
   closed: "Closed",
 };
 
+function formatAssignmentRole(assignment: EventRoleAssignment) {
+  if (assignment.role === "Chair" && (assignment.eventChairCount ?? 0) > 1) {
+    return "Co-chair";
+  }
+
+  return assignment.role;
+}
+
 export function EventDetail({
   currentUserId,
-  initialCommittees,
+  initialAssignments,
   initialEvent,
   initialPermissions,
   isAdmin,
-  userCommitteeRole,
+  userEventRole,
 }: Readonly<{
   currentUserId: string;
-  initialCommittees: EventCommittee[];
+  initialAssignments: EventRoleAssignment[];
   initialEvent: Event;
   initialPermissions: EventPermissions;
   isAdmin: boolean;
-  userCommitteeRole: EventRole | null;
+  userEventRole: EventRole | null;
 }>) {
   const router = useRouter();
   const [event, setEvent] = useState(initialEvent);
-  const [committees, setCommittees] = useState(initialCommittees);
+  const [assignments, setAssignments] = useState(initialAssignments);
   const [permissions] = useState(initialPermissions);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -80,14 +82,14 @@ export function EventDetail({
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<EventStatus | "">("");
-  const [removeTarget, setRemoveTarget] = useState<EventCommittee | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<EventRoleAssignment | null>(null);
 
-  const refreshCommittees = useCallback(async () => {
+  const refreshAssignments = useCallback(async () => {
     const response = await fetch(`/api/events/${event.$id}/committees`);
     const payload = await response.json();
 
     if (response.ok) {
-      setCommittees(payload.committees ?? []);
+      setAssignments(payload.assignments ?? payload.committees ?? []);
     }
   }, [event.$id]);
 
@@ -155,8 +157,8 @@ export function EventDetail({
     setMessage("Submitting conclusion...");
 
     try {
-      const response = await fetch(`/api/events/${event.$id}/status`, {
-        body: JSON.stringify({ status: "pending_conclusion" }),
+      const response = await fetch(`/api/events/${event.$id}/conclude`, {
+        body: JSON.stringify({ action: "submit" }),
         headers: { "Content-Type": "application/json" },
         method: "PATCH",
       });
@@ -179,23 +181,45 @@ export function EventDetail({
     }
   }
 
-  async function handleConclusionDecision(decision: "approved" | "rejected") {
+  async function handleConclusionDecision(decision: "approve" | "reject") {
     setPendingAction(decision);
-    setMessage(
-      decision === "approved"
-        ? "Conclusion approval is not yet available in this release."
-        : "Conclusion rejection is not yet available in this release.",
-    );
-    setPendingAction(null);
+    setError("");
+    setMessage(decision === "approve" ? "Approving conclusion..." : "Rejecting conclusion...");
+
+    try {
+      const response = await fetch(`/api/events/${event.$id}/conclude`, {
+        body: JSON.stringify({ action: decision }),
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setError(payload.error ?? "Could not process conclusion decision.");
+        setMessage("");
+        return;
+      }
+
+      setEvent(payload.event);
+      setMessage(
+        decision === "approve" ? "Conclusion approved." : "Conclusion rejected.",
+      );
+      router.refresh();
+    } catch {
+      setError("Could not process conclusion decision.");
+      setMessage("");
+    } finally {
+      setPendingAction(null);
+    }
   }
 
-  async function handleRemoveMember(committee: EventCommittee) {
-    setPendingAction(committee.$id);
+  async function handleRemoveMember(assignment: EventRoleAssignment) {
+    setPendingAction(assignment.$id);
     setError("");
 
     try {
       const response = await fetch(
-        `/api/events/${event.$id}/committees/${committee.$id}`,
+        `/api/events/${event.$id}/committees/${assignment.$id}`,
         { method: "DELETE" },
       );
 
@@ -205,7 +229,7 @@ export function EventDetail({
         return;
       }
 
-      await refreshCommittees();
+      await refreshAssignments();
       setMessage("Committee member removed.");
       setRemoveTarget(null);
     } catch {
@@ -217,8 +241,14 @@ export function EventDetail({
 
   const statusTransitions = getAvailableStatusTransitions(event.status, { isAdmin });
   const canChangeStatus =
-    (isAdmin || userCommitteeRole === "chair") && statusTransitions.length > 0;
+    (isAdmin || userEventRole === "Chair") && statusTransitions.length > 0;
   const currentStatusIndex = EVENT_STATUSES.indexOf(event.status);
+  const canSubmitConclusion =
+    permissions.canSubmitConclusion &&
+    event.status === "ongoing" &&
+    (event.conclusion_status === "not_submitted" || event.conclusion_status === "rejected");
+  const canDecideConclusion =
+    permissions.canApproveConclusion && event.conclusion_status === "submitted";
 
   return (
     <div className="space-y-6">
@@ -375,7 +405,7 @@ export function EventDetail({
                 <Users className="size-4 text-primary" aria-hidden="true" />
                 Committee
               </CardTitle>
-              <CardDescription>Active event committee assignments.</CardDescription>
+              <CardDescription>Active event role assignments.</CardDescription>
             </div>
             {permissions.canAssignRoles ? (
               <Button onClick={() => setShowAssignModal(true)} type="button" variant="primary">
@@ -386,7 +416,7 @@ export function EventDetail({
           </div>
         </CardHeader>
         <CardContent>
-          {committees.length > 0 ? (
+          {assignments.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-[760px] divide-y divide-border text-left text-sm">
                 <thead className="text-text-secondary">
@@ -401,39 +431,37 @@ export function EventDetail({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {committees.map((committee) => {
+                  {assignments.map((assignment) => {
                     const canRemove = canRemoveCommitteeRole({
-                      actorCommitteeRole: userCommitteeRole,
+                      actorEventRole: userEventRole,
                       actorUserId: currentUserId,
                       isAdmin,
-                      targetCommittee: committee,
+                      targetAssignment: assignment,
                     });
 
                     return (
-                      <tr key={committee.$id}>
+                      <tr key={assignment.$id}>
                         <td className="py-3 pr-4">
-                          <p className="font-medium text-text-primary">{committee.user_id}</p>
+                          <p className="font-medium text-text-primary">{assignment.userId}</p>
                           <p className="mt-1 text-xs text-text-muted">
                             User display lookup pending platform update
                           </p>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge tone="primary">
-                            {formatEventRole(committee.role, committee.display_role)}
-                          </Badge>
+                          <Badge tone="primary">{formatAssignmentRole(assignment)}</Badge>
                         </td>
                         <td className="px-4 py-3 text-text-secondary">
-                          {committee.committee_name || "Event-level"}
+                          {assignment.committeeName || "Event-level"}
                         </td>
                         <td className="px-4 py-3 text-text-secondary">
-                          {formatEventDate(committee.assigned_at)}
+                          {formatEventDate(assignment.assignedAt)}
                         </td>
                         {permissions.canAssignRoles ? (
                           <td className="px-4 py-3">
                             {canRemove ? (
                               <Button
-                                disabled={pendingAction === committee.$id}
-                                onClick={() => setRemoveTarget(committee)}
+                                disabled={pendingAction === assignment.$id}
+                                onClick={() => setRemoveTarget(assignment)}
                                 type="button"
                                 variant="ghost"
                               >
@@ -472,7 +500,7 @@ export function EventDetail({
           </Badge>
 
           <div className="flex flex-wrap gap-2">
-            {permissions.canSubmitConclusion && event.status === "ongoing" ? (
+            {canSubmitConclusion ? (
               <Button
                 disabled={pendingAction === "conclusion"}
                 onClick={handleSubmitConclusion}
@@ -490,23 +518,37 @@ export function EventDetail({
               </Button>
             ) : null}
 
-            {permissions.canApproveConclusion && event.conclusion_status === "submitted" ? (
+            {canDecideConclusion ? (
               <>
                 <Button
-                  disabled={pendingAction === "approved"}
-                  onClick={() => handleConclusionDecision("approved")}
+                  disabled={pendingAction === "approve"}
+                  onClick={() => handleConclusionDecision("approve")}
                   type="button"
                   variant="primary"
                 >
-                  Approve
+                  {pendingAction === "approve" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      Approving...
+                    </>
+                  ) : (
+                    "Approve"
+                  )}
                 </Button>
                 <Button
-                  disabled={pendingAction === "rejected"}
-                  onClick={() => handleConclusionDecision("rejected")}
+                  disabled={pendingAction === "reject"}
+                  onClick={() => handleConclusionDecision("reject")}
                   type="button"
                   variant="ghost"
                 >
-                  Reject
+                  {pendingAction === "reject" ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      Rejecting...
+                    </>
+                  ) : (
+                    "Reject"
+                  )}
                 </Button>
               </>
             ) : null}
@@ -526,7 +568,7 @@ export function EventDetail({
           currentUserIsAdmin={isAdmin}
           eventId={event.$id}
           onClose={() => setShowAssignModal(false)}
-          onSuccess={refreshCommittees}
+          onSuccess={refreshAssignments}
         />
       ) : null}
 
@@ -544,7 +586,7 @@ export function EventDetail({
       {removeTarget ? (
         <ConfirmationDialog
           confirmLabel="Remove Member"
-          description={`Remove ${formatEventRole(removeTarget.role, removeTarget.display_role)} from this event committee?`}
+          description={`Remove ${formatAssignmentRole(removeTarget)} from this event committee?`}
           isBusy={pendingAction === removeTarget.$id}
           onCancel={() => setRemoveTarget(null)}
           onConfirm={() => handleRemoveMember(removeTarget)}

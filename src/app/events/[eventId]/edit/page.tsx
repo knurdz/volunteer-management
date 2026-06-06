@@ -39,13 +39,13 @@ export default async function EditEventPage({ params }: PageProps) {
     redirect("/events");
   }
 
-  const { userCommitteeRole } = await getEventUserContext(eventId, user);
+  const { userEventRole } = await getEventUserContext(eventId, user);
 
-  if (!isEventVisible(user, event, userCommitteeRole)) {
+  if (!isEventVisible(user, event, userEventRole)) {
     redirect("/events");
   }
 
-  const permissions = getPermissionsForUser(user, event, userCommitteeRole);
+  const permissions = getPermissionsForUser(user, event, userEventRole);
 
   if (!permissions.canEdit) {
     redirect(`/events/${eventId}`);

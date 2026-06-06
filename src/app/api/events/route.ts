@@ -5,11 +5,10 @@ import {
   canCreateEvent,
   parseEventStatus,
   parseValidationBody,
-  VOLUNTEER_VISIBLE_STATUSES,
 } from "@/features/events/server/event-route-helpers";
-import { createEvent, listEvents } from "@/features/events/server/event-service";
+import { createEvent, getEvents } from "@/features/events/server/event-service";
 import { CreateEventInputSchema } from "@/features/events/types";
-import { jsonError } from "@/server/errors";
+import { jsonError, routeErrorStatus } from "@/server/errors";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -25,31 +24,28 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = parseEventStatus(searchParams.get("status"));
   const term = searchParams.get("term")?.trim() || undefined;
+  const limit = Number.parseInt(searchParams.get("limit") ?? "50", 10);
+  const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
 
   if (searchParams.get("status") && !status) {
     return jsonError("Invalid event status filter.", 400);
   }
 
   try {
-    if (user.isAdmin) {
-      const events = await listEvents({ status, term });
-      return NextResponse.json({ events });
-    }
+    const result = await getEvents({
+      isAdmin: user.isAdmin,
+      limit: Number.isNaN(limit) ? 50 : limit,
+      offset: Number.isNaN(offset) ? 0 : offset,
+      status,
+      term,
+      userId: user.authUser.id,
+    });
 
-    if (status && !VOLUNTEER_VISIBLE_STATUSES.includes(status)) {
-      return NextResponse.json({ events: [] });
-    }
-
-    const events = await listEvents({ status, term });
-    const visibleEvents = events.filter((event) =>
-      VOLUNTEER_VISIBLE_STATUSES.includes(event.status),
-    );
-
-    return NextResponse.json({ events: visibleEvents });
+    return NextResponse.json(result);
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Failed to list events.",
-      400,
+      routeErrorStatus(error),
     );
   }
 }
@@ -72,12 +68,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const event = await createEvent(parsed.data, user.authUser.id);
+    const event = await createEvent(parsed.data, user.authUser.id, {
+      isAdmin: user.isAdmin,
+    });
     return NextResponse.json({ event }, { status: 201 });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Failed to create event.",
-      400,
+      routeErrorStatus(error),
     );
   }
 }

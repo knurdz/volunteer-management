@@ -45,9 +45,9 @@ export async function PATCH(request: Request, context: RouteContext) {
       return jsonError("Event was not found.", 404);
     }
 
-    const { userCommitteeRole } = await getEventUserContext(eventId, user);
+    const { userEventRole } = await getEventUserContext(eventId, user);
 
-    if (!isEventVisible(user, existingEvent, userCommitteeRole)) {
+    if (!isEventVisible(user, existingEvent, userEventRole)) {
       return jsonError("Event was not found.", 404);
     }
 
@@ -56,13 +56,14 @@ export async function PATCH(request: Request, context: RouteContext) {
         event: existingEvent,
         newStatus: parsed.data.status,
         user,
-        userCommitteeRole,
+        userEventRole,
       })
     ) {
       return jsonError("You do not have permission to change this event status.", 403);
     }
 
     const event = await updateEventStatus(eventId, parsed.data.status, {
+      actorUserId: user.authUser.id,
       allowAdminBackward: user.isAdmin,
     });
 

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import {
   canAssignCommitteeRole,
@@ -11,12 +10,12 @@ import {
 } from "@/features/events/server/event-route-helpers";
 import {
   assignEventRole,
-  getCommitteesForEvent,
+  getRoleAssignmentsForEvent,
   getUserEventRole,
-} from "@/features/events/server/committee-service";
+} from "@/features/events/server/event-roles.server";
 import { getEventById } from "@/features/events/server/event-service";
 import { AssignEventRoleInputSchema } from "@/features/events/types";
-import { jsonError } from "@/server/errors";
+import { jsonError, routeErrorStatus } from "@/server/errors";
 
 type RouteContext = {
   params: Promise<{ eventId: string }>;
@@ -39,31 +38,30 @@ export async function GET(_request: Request, context: RouteContext) {
       return jsonError("Event was not found.", 404);
     }
 
-    const userCommitteeRole = (await getUserEventRole(user!.authUser.id, eventId))?.role ?? null;
+    const userEventRole = await getUserEventRole(user!.authUser.id, eventId);
 
-    if (!canViewEventCommittees(user!, event, userCommitteeRole)) {
+    if (
+      !canViewEventCommittees(user!.isAdmin, event, userEventRole, user!.authUser.id)
+    ) {
       return jsonError("Event was not found.", 404);
     }
 
-    const committees = await getCommitteesForEvent(eventId);
-    return NextResponse.json({ committees });
+    const assignments = await getRoleAssignmentsForEvent(eventId);
+    return NextResponse.json({ assignments, committees: assignments });
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Failed to list event committees.",
-      400,
+      error instanceof Error ? error.message : "Failed to list event role assignments.",
+      routeErrorStatus(error),
     );
   }
 }
 
 export async function POST(request: Request, context: RouteContext) {
   const user = await getCurrentUser();
+  const authError = requireVerifiedVolunteer(user);
 
-  if (!user) {
-    return jsonError("Authentication required.", 401);
-  }
-
-  if (!user.isAdmin && !canVolunteer(user.profile)) {
-    return jsonError("Verified UoM email is required before volunteering.", 403);
+  if (authError) {
+    return authError;
   }
 
   const { eventId } = await context.params;
@@ -84,24 +82,24 @@ export async function POST(request: Request, context: RouteContext) {
       return jsonError("Event was not found.", 404);
     }
 
-    const actorCommitteeRole = (await getUserEventRole(user.authUser.id, eventId))?.role ?? null;
+    const actorEventRole = await getUserEventRole(user!.authUser.id, eventId);
 
     if (
       !canAssignCommitteeRole({
-        actorCommitteeRole,
-        isAdmin: user.isAdmin,
+        actorEventRole,
+        isAdmin: user!.isAdmin,
         targetRole: parsed.data.role,
       })
     ) {
       return jsonError("You do not have permission to assign this event role.", 403);
     }
 
-    const committee = await assignEventRole(parsed.data, user.authUser.id);
-    return NextResponse.json({ committee }, { status: 201 });
+    const assignment = await assignEventRole(parsed.data, user!.authUser.id);
+    return NextResponse.json({ assignment, committee: assignment }, { status: 201 });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Failed to assign event role.",
-      400,
+      routeErrorStatus(error),
     );
   }
 }

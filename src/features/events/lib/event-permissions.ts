@@ -1,21 +1,15 @@
 import "server-only";
 
-import { isAdminEmail } from "@/features/access-control/lib/rules";
-import { getProfile } from "@/features/access-control/server/profiles";
-import { getUserEventRole } from "@/features/events/server/committee-service";
-import { getEventById } from "@/features/events/server/event-service";
-import type {
-  Event,
-  EventCommittee,
-  EventPermissions,
-  EventRole,
-  EventStatus,
-} from "@/features/events/types";
-import type { getAppwriteAdminServices } from "@/server/appwrite";
-import { getServerEnv } from "@/lib/env";
+import type { EventRole } from "@/features/access-control/types";
+import type { Event, EventPermissions, EventStatus } from "@/features/events/types";
 
 const EDITABLE_STATUSES: EventStatus[] = ["draft", "planning"];
-const PUBLICLY_VISIBLE_STATUSES: EventStatus[] = ["published", "ongoing", "closed"];
+const PUBLICLY_VISIBLE_STATUSES: EventStatus[] = [
+  "published",
+  "ongoing",
+  "pending_conclusion",
+];
+const RESTRICTED_STATUSES: EventStatus[] = ["draft", "planning"];
 
 const VIEW_ONLY_PERMISSIONS: EventPermissions = {
   canApproveConclusion: false,
@@ -37,46 +31,38 @@ const ADMIN_PERMISSIONS: EventPermissions = {
   canSubmitConclusion: true,
 };
 
-function isAdminUser(userSbRole: string) {
-  return userSbRole === "Admin";
-}
-
-function hasCommitteeRole(userCommitteeRole?: EventRole | null) {
-  return userCommitteeRole != null;
-}
-
 export function isEventVisibleToUser(
   userId: string,
-  userSbRole: string,
+  isAdmin: boolean,
   event: Event,
-  userCommitteeRole?: EventRole | null,
+  userEventRole?: EventRole | null,
 ) {
-  void userId;
-
-  if (isAdminUser(userSbRole)) {
+  if (isAdmin) {
     return true;
   }
 
-  if (hasCommitteeRole(userCommitteeRole)) {
+  if (PUBLICLY_VISIBLE_STATUSES.includes(event.status)) {
     return true;
   }
 
-  return PUBLICLY_VISIBLE_STATUSES.includes(event.status);
+  if (RESTRICTED_STATUSES.includes(event.status)) {
+    return event.created_by === userId || userEventRole != null;
+  }
+
+  return false;
 }
 
 export function getEventPermissions(
   userId: string,
-  userSbRole: string,
+  isAdmin: boolean,
   event: Event,
-  userCommitteeRole?: EventRole | null,
+  userEventRole?: EventRole | null,
 ): EventPermissions {
-  void userId;
-
-  if (isAdminUser(userSbRole)) {
+  if (isAdmin) {
     return ADMIN_PERMISSIONS;
   }
 
-  if (userCommitteeRole === "chair") {
+  if (userEventRole === "Chair") {
     return {
       canApproveConclusion: false,
       canAssignRoles: true,
@@ -88,43 +74,6 @@ export function getEventPermissions(
     };
   }
 
+  void userId;
   return VIEW_ONLY_PERMISSIONS;
-}
-
-async function resolveUserSbRole(userId: string) {
-  const env = getServerEnv();
-  const profile = await getProfile(userId);
-
-  if (profile && isAdminEmail(profile.googleEmail, env.ADMIN_EMAIL)) {
-    return "Admin";
-  }
-
-  return "";
-}
-
-export async function resolveEventContext(
-  userId: string,
-  eventId: string,
-  appwriteServerClient: ReturnType<typeof getAppwriteAdminServices>,
-): Promise<{
-  event: Event | null;
-  permissions: EventPermissions;
-  userRole: EventCommittee | null;
-}> {
-  void appwriteServerClient;
-
-  const [event, userRole] = await Promise.all([
-    getEventById(eventId),
-    getUserEventRole(userId, eventId),
-  ]);
-  const userSbRole = await resolveUserSbRole(userId);
-  const permissions = event
-    ? getEventPermissions(userId, userSbRole, event, userRole?.role ?? null)
-    : VIEW_ONLY_PERMISSIONS;
-
-  return {
-    event,
-    permissions,
-    userRole,
-  };
 }

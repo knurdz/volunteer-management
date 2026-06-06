@@ -105,8 +105,5 @@ export function formatEventRole(role: string, displayRole?: string) {
     return displayRole;
   }
 
-  return role
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  return role;
 }
