@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/card";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import { listProfiles } from "@/features/access-control/server/profiles";
-import { AdminNotificationForm } from "@/features/notifications/components/admin-notification-form";
+import { listActiveEventRoleAssignments } from "@/features/access-control/server/roles";
+import {
+  AdminNotificationForm,
+  type NotificationEventOption,
+} from "@/features/notifications/components/admin-notification-form";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +32,11 @@ export default async function AdminNotificationsPage() {
     redirect("/dashboard");
   }
 
-  const profiles = await listProfiles();
+  const [profiles, eventAssignments] = await Promise.all([
+    listProfiles(),
+    listActiveEventRoleAssignments(),
+  ]);
+  const eventOptions = buildEventOptions(eventAssignments);
 
   return (
     <AppShell active="notifications" user={currentUser}>
@@ -55,10 +63,40 @@ export default async function AdminNotificationsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <AdminNotificationForm profiles={profiles} />
+            <AdminNotificationForm eventOptions={eventOptions} profiles={profiles} />
           </CardContent>
         </Card>
       </div>
     </AppShell>
   );
+}
+
+function buildEventOptions(
+  assignments: Awaited<ReturnType<typeof listActiveEventRoleAssignments>>,
+): NotificationEventOption[] {
+  const events = new Map<
+    string,
+    {
+      eventTitle: string;
+      userIds: Set<string>;
+    }
+  >();
+
+  for (const assignment of assignments) {
+    const event = events.get(assignment.eventId) ?? {
+      eventTitle: assignment.eventTitle,
+      userIds: new Set<string>(),
+    };
+
+    event.userIds.add(assignment.userId);
+    events.set(assignment.eventId, event);
+  }
+
+  return Array.from(events.entries())
+    .map(([eventId, event]) => ({
+      eventId,
+      eventTitle: event.eventTitle,
+      recipientCount: event.userIds.size,
+    }))
+    .sort((a, b) => a.eventTitle.localeCompare(b.eventTitle));
 }

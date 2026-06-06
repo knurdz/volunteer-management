@@ -14,7 +14,8 @@
     "test": "node scripts/run-with-env.mjs vitest run",
     "check": "npm run lint && npm run typecheck",
     "setup:appwrite": "node scripts/run-with-env.mjs node scripts/setup-appwrite.mjs",
-    "setup:appwrite:oauth": "node scripts/run-with-env.mjs node scripts/setup-appwrite-google-oauth.mjs"
+    "setup:appwrite:oauth": "node scripts/run-with-env.mjs node scripts/setup-appwrite-google-oauth.mjs",
+    "seed:test-notifications": "node scripts/run-with-env.mjs node scripts/seed-test-notification-data.mjs"
   },
   "dependencies": {
     "appwrite": "^25.2.0",
