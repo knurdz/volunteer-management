@@ -726,19 +726,27 @@ export async function getLeaderboard(params: {
     year: YearSchema.optional(),
   }).parse(params);
 
-  const ledgerResult = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.pointLedger,
-    [Query.limit(1000)]
-  );
-  let entries = ledgerResult.rows as unknown as PointLedgerEntry[];
+  const [ledgerResult, configResult, profilesResult] = await Promise.all([
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.pointLedger,
+      [Query.limit(1000)]
+    ),
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.termScoringConfig,
+      [Query.limit(1000)]
+    ),
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.profiles,
+      [Query.limit(500)]
+    ),
+  ]);
 
-  const configResult = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.termScoringConfig,
-    [Query.limit(1000)]
-  );
+  let entries = ledgerResult.rows as unknown as PointLedgerEntry[];
   const configs = configResult.rows as unknown as TermScoringConfig[];
+  const profileMap = new Map(profilesResult.rows.map((p) => [p.$id, p]));
 
   // Filter ledger
   if (validated.month !== undefined && validated.year !== undefined) {
@@ -755,13 +763,6 @@ export async function getLeaderboard(params: {
     }
     userMap.get(entry.userId)!.push(entry);
   }
-
-  const profilesResult = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.profiles,
-    [Query.limit(500)]
-  );
-  const profileMap = new Map(profilesResult.rows.map((p) => [p.$id, p]));
 
   const leaderboard: { userId: string; name: string; points: number }[] = [];
 
