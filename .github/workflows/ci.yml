@@ -17,6 +17,7 @@ jobs:
     env:
       ADMIN_EMAIL: admin@example.com
       APPWRITE_API_KEY: ci-placeholder
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       NEXT_PUBLIC_APPWRITE_DATABASE_ID: volunteer_management
       NEXT_PUBLIC_APPWRITE_ENDPOINT: https://cloud.appwrite.io/v1
       NEXT_PUBLIC_APPWRITE_PROJECT_ID: ci-project
