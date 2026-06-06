@@ -48,15 +48,15 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
 
   const [reqEventId, setReqEventId] = useState("");
   const [reqTargetUserId, setReqTargetUserId] = useState("");
-  const [reqGradeValue, setReqGradeValue] = useState(80);
+  const [reqGradeValue, setReqGradeValue] = useState(5);
 
   const [revRequestId, setRevRequestId] = useState("");
-  const [revGradeValue, setRevGradeValue] = useState(80);
+  const [revGradeValue, setRevGradeValue] = useState(5);
 
 
 
   const [overReviewId, setOverReviewId] = useState("");
-  const [overGradeValue, setOverGradeValue] = useState(80);
+  const [overGradeValue, setOverGradeValue] = useState(5);
   const [overReason, setOverReason] = useState("");
 
   const [exUserId, setExUserId] = useState("");
@@ -475,12 +475,12 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
                 <div className="flex gap-2 items-center">
                   <div className="flex-1">
                     <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                      Grade Value (0-100)
+                      Grade Value (0-10)
                     </label>
                     <input
                       type="number"
                       min="0"
-                      max="100"
+                      max="10"
                       required
                       value={reqGradeValue}
                       onChange={(e) => setReqGradeValue(Number(e.target.value))}
@@ -539,7 +539,7 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
                             type="number"
                             placeholder="Grade"
                             min="0"
-                            max="100"
+                            max="10"
                             className="w-16 px-2 py-1 border border-border rounded text-sm bg-surface"
                             onChange={(e) => {
                               setRevRequestId(req.$id);
@@ -732,12 +732,12 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    New Grade Value (0-100)
+                    New Grade Value (0-10)
                   </label>
                   <input
                     type="number"
                     min="0"
-                    max="100"
+                    max="10"
                     required
                     value={overGradeValue}
                     onChange={(e) => setOverGradeValue(Number(e.target.value))}

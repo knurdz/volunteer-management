@@ -5,13 +5,12 @@ import { jsonError, routeErrorStatus } from "@/server/errors";
 
 const finalizeSchema = z.object({
   gradeRequestId: z.string().min(1),
-  conclusionApprovalDate: z.string().optional(),
 });
 
 export async function POST(request: Request) {
   try {
     const body = finalizeSchema.parse(await request.json());
-    const gradeRequest = await finalizeGrade(body.gradeRequestId, body.conclusionApprovalDate);
+    const gradeRequest = await finalizeGrade(body.gradeRequestId);
     return NextResponse.json({ gradeRequest });
   } catch (error) {
     return jsonError(

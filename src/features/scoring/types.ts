@@ -48,6 +48,7 @@ export interface PointLedgerEntry {
   eventId: string;
   points: number;
   conclusionApprovalDate: string;
+  term: string;
   source: PointLedgerSource;
   createdBy: string;
   createdAt: string;

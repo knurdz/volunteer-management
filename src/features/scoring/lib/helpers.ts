@@ -46,16 +46,27 @@ export function filterLedgerByMonth(
 }
 
 /**
- * Filters point ledger entries by IEEE term year.
+ * Derives the IEEE term string from an ISO date string.
+ * Spans from AGM to AGM (transitioning on April 1st UTC).
+ * Months: 0=Jan, 1=Feb, 2=Mar, 3=Apr...
+ */
+export function deriveTermFromDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const year = date.getUTCFullYear();
+  return date.getUTCMonth() < 3
+    ? `${year - 1}/${year}`
+    : `${year}/${year + 1}`;
+}
+
+/**
+ * Filters point ledger entries by IEEE term.
  */
 export function filterLedgerByTerm(
   ledger: PointLedgerEntry[],
-  term: string,
-  year: number
+  term: string
 ): PointLedgerEntry[] {
   return ledger.filter((entry) => {
-    const date = new Date(entry.conclusionApprovalDate);
-    return date.getUTCFullYear() === year;
+    return entry.term === term;
   });
 }
 

@@ -1,5 +1,7 @@
 "use server";
 
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import { ID, Query, TablesDB } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getAppwriteAdminServices } from "@/server/appwrite";
@@ -17,7 +19,16 @@ import {
   isEligibleForTopBoard,
   isSelfEventGrade,
   sumPointsFromLedger,
+  deriveTermFromDate,
 } from "../lib/helpers";
+import {
+  ParticipationRecordSchema,
+  GradeRequestSchema,
+  AdminGradeOverrideSchema,
+  TermSchema,
+  YearSchema,
+  MonthSchema,
+} from "../lib/schemas";
 import type {
   ParticipationRecord,
   ParticipationStatus,
@@ -42,47 +53,45 @@ export async function upsertParticipationRecord(data: {
   const { tables } = getAppwriteAdminServices();
   const user = await requireAuth();
 
+  const validated = ParticipationRecordSchema.parse(data);
+
   if (!user.isAdmin) {
-    const isChair = hasEventRole(user, data.eventId, "Chair");
+    const isChair = hasEventRole(user, validated.eventId, "Chair");
     if (!isChair) {
       throw new Error("Only event chairs and admins can manage participation records.");
     }
   }
 
-  const existing = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.participationRecords,
-    [
-      Query.equal("userId", data.userId),
-      Query.equal("eventId", data.eventId),
-      Query.limit(1),
-    ]
-  );
-
+  const rowId = `pr_${createHash("sha1").update(`${validated.userId}:${validated.eventId}`).digest("hex").slice(0, 30)}`;
   const now = new Date().toISOString();
 
-  if (existing.total > 0) {
+  try {
+    await tables.getRow(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.participationRecords,
+      rowId
+    );
     const row = await tables.updateRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.participationRecords,
-      existing.rows[0].$id,
+      rowId,
       {
-        role: data.role,
-        status: data.status,
+        role: validated.role,
+        status: validated.status,
         updatedAt: now,
       }
     );
     return row as unknown as ParticipationRecord;
-  } else {
+  } catch {
     const row = await tables.createRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.participationRecords,
-      ID.unique(),
+      rowId,
       {
-        userId: data.userId,
-        eventId: data.eventId,
-        role: data.role,
-        status: data.status,
+        userId: validated.userId,
+        eventId: validated.eventId,
+        role: validated.role,
+        status: validated.status,
         createdAt: now,
         updatedAt: now,
       }
@@ -105,8 +114,10 @@ export async function createGradeRequest(data: {
   const user = await requireAuth();
   const graderId = user.authUser.id;
 
+  const validated = GradeRequestSchema.parse(data);
+
   if (!user.isAdmin) {
-    const isLead = hasEventRole(user, data.eventId, ["Chair", "Committee Lead"]);
+    const isLead = hasEventRole(user, validated.eventId, ["Chair", "Vice Chair", "Committee Lead"]);
     if (!isLead) {
       throw new Error("Only event leads and chairs can submit grading requests.");
     }
@@ -115,74 +126,87 @@ export async function createGradeRequest(data: {
       .filter((assignment) => assignment.active && assignment.role === "Chair")
       .map((assignment) => assignment.eventId);
 
-    if (isSelfEventGrade(graderId, data.eventId, chairEventIds)) {
+    if (isSelfEventGrade(graderId, validated.eventId, chairEventIds)) {
       throw new Error("Chairs cannot grade participants under their own event.");
     }
   }
 
-  const existingRequests = await tables.listRows(
+  // Verify target is a participant of the event
+  const participationResult = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.gradeRequests,
+    APPWRITE_TABLES.participationRecords,
     [
-      Query.equal("eventId", data.eventId),
-      Query.equal("targetUserId", data.targetUserId),
+      Query.equal("userId", validated.targetUserId),
+      Query.equal("eventId", validated.eventId),
       Query.limit(1),
     ]
   );
 
-  const now = new Date().toISOString();
-  let requestId: string;
+  if (participationResult.total === 0) {
+    throw new Error("Target user is not a participant in this event.");
+  }
 
-  if (existingRequests.total === 0) {
-    requestId = ID.unique();
+  const requestId = `gr_${createHash("sha1").update(`${validated.eventId}:${validated.targetUserId}`).digest("hex").slice(0, 30)}`;
+  const now = new Date().toISOString();
+
+  // Check if finalized
+  try {
+    const existing = (await tables.getRow(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.gradeRequests,
+      requestId
+    )) as unknown as GradeRequest;
+
+    if (existing.status === "finalized") {
+      throw new Error("Cannot modify a finalized grade request.");
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message === "Cannot modify a finalized grade request.") {
+      throw err;
+    }
+    // Otherwise, create request row
     await tables.createRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.gradeRequests,
       requestId,
       {
         requestId,
-        eventId: data.eventId,
+        eventId: validated.eventId,
         requestedBy: graderId,
-        targetUserId: data.targetUserId,
+        targetUserId: validated.targetUserId,
         status: "pending",
         createdAt: now,
         updatedAt: now,
       }
     );
-  } else {
-    requestId = existingRequests.rows[0].$id;
   }
 
-  // Manage the review record for this grader
-  const existingReviews = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.gradeReviews,
-    [
-      Query.equal("gradeRequestId", requestId),
-      Query.equal("reviewerId", graderId),
-      Query.limit(1),
-    ]
-  );
+  const reviewId = `rev_${createHash("sha1").update(`${requestId}:${graderId}`).digest("hex").slice(0, 28)}`;
 
-  if (existingReviews.total > 0) {
+  try {
+    await tables.getRow(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.gradeReviews,
+      reviewId
+    );
     await tables.updateRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.gradeReviews,
-      existingReviews.rows[0].$id,
+      reviewId,
       {
-        gradeValue: data.gradeValue,
+        gradeValue: validated.gradeValue,
         submittedAt: now,
       }
     );
-  } else {
+  } catch {
     await tables.createRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.gradeReviews,
-      ID.unique(),
+      reviewId,
       {
         gradeRequestId: requestId,
         reviewerId: graderId,
-        gradeValue: data.gradeValue,
+        gradeValue: validated.gradeValue,
         submittedAt: now,
       }
     );
@@ -202,18 +226,22 @@ export async function createGradeRequest(data: {
   return updatedRequest as unknown as GradeRequest;
 }
 
-/**
- * Lists grade requests scoped by user's roles.
- */
-export async function listGradeRequests() {
+export async function listGradeRequests(params?: { limit?: number; offset?: number }) {
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
   const user = await requireAuth();
 
+  const limit = params?.limit !== undefined ? z.number().int().min(1).max(500).parse(params.limit) : 500;
+  const offset = params?.offset !== undefined ? z.number().int().min(0).parse(params.offset) : 0;
+
   const result = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.gradeRequests,
-    [Query.limit(500)]
+    [
+      Query.limit(limit),
+      Query.offset(offset),
+      Query.orderDesc("updatedAt"),
+    ]
   );
 
   if (user.isAdmin) {
@@ -236,56 +264,49 @@ export async function submitGradeReview(gradeRequestId: string, gradeValue: numb
   const user = await requireAuth();
   const graderId = user.authUser.id;
 
+  z.string().min(1).parse(gradeRequestId);
+  z.number().int().min(0).max(10).parse(gradeValue);
+
   const gradeRequest = (await tables.getRow(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.gradeRequests,
     gradeRequestId
   )) as unknown as GradeRequest;
 
+  if (gradeRequest.status === "finalized") {
+    throw new Error("Cannot submit review for a finalized grade request.");
+  }
+
   if (!user.isAdmin) {
-    const hasRole = user.eventRoles.some(
-      (assignment) => assignment.active && assignment.eventId === gradeRequest.eventId
-    );
+    const hasRole = hasEventRole(user, gradeRequest.eventId, ["Vice Chair", "Committee Lead"]);
     if (!hasRole) {
       throw new Error("Only authorized event reviewers or admins can submit reviews.");
     }
-
-    const chairEventIds = user.eventRoles
-      .filter((assignment) => assignment.active && assignment.role === "Chair")
-      .map((assignment) => assignment.eventId);
-
-    if (isSelfEventGrade(graderId, gradeRequest.eventId, chairEventIds)) {
-      throw new Error("Chairs cannot grade participants under their own event.");
-    }
   }
 
-  const existingReviews = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.gradeReviews,
-    [
-      Query.equal("gradeRequestId", gradeRequestId),
-      Query.equal("reviewerId", graderId),
-      Query.limit(1),
-    ]
-  );
-
+  const reviewId = `rev_${createHash("sha1").update(`${gradeRequestId}:${graderId}`).digest("hex").slice(0, 28)}`;
   const now = new Date().toISOString();
 
-  if (existingReviews.total > 0) {
+  try {
+    await tables.getRow(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.gradeReviews,
+      reviewId
+    );
     await tables.updateRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.gradeReviews,
-      existingReviews.rows[0].$id,
+      reviewId,
       {
         gradeValue,
         submittedAt: now,
       }
     );
-  } else {
+  } catch {
     await tables.createRow(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.gradeReviews,
-      ID.unique(),
+      reviewId,
       {
         gradeRequestId,
         reviewerId: graderId,
@@ -310,6 +331,7 @@ export async function submitGradeReview(gradeRequestId: string, gradeValue: numb
 
 /**
  * Recalculate points ledger entries for a finalized request.
+ * Delta-based and append-only to preserve manual adjustments and audit history.
  */
 async function recalculateLedgerEntries(
   tables: TablesDB,
@@ -319,29 +341,28 @@ async function recalculateLedgerEntries(
   conclusionApprovalDate: string,
   createdBy: string
 ) {
-  // Clear any existing entries for this event and target user to keep it idempotent
+  const now = new Date().toISOString();
+  const term = deriveTermFromDate(conclusionApprovalDate);
+
+  // Read all existing ledger entries for this event and target user
   const existingEntries = await tables.listRows(databaseId, APPWRITE_TABLES.pointLedger, [
     Query.equal("userId", gradeRequest.targetUserId),
     Query.equal("eventId", gradeRequest.eventId),
     Query.limit(100),
   ]);
 
-  for (const row of existingEntries.rows) {
-    await tables.deleteRow(databaseId, APPWRITE_TABLES.pointLedger, row.$id);
-  }
+  const existingRows = existingEntries.rows as unknown as PointLedgerEntry[];
 
-  const now = new Date().toISOString();
+  // Sum points for each source
+  const currentGradePoints = existingRows
+    .filter((r) => r.source === "grade")
+    .reduce((acc, r) => acc + Number(r.points), 0);
 
-  // Create grade point entry
-  await tables.createRow(databaseId, APPWRITE_TABLES.pointLedger, ID.unique(), {
-    userId: gradeRequest.targetUserId,
-    eventId: gradeRequest.eventId,
-    points: averageGrade,
-    conclusionApprovalDate,
-    source: "grade",
-    createdBy,
-    createdAt: now,
-  });
+  const currentRolePoints = existingRows
+    .filter((r) => r.source === "role")
+    .reduce((acc, r) => acc + Number(r.points), 0);
+
+  const targetGradePoints = averageGrade;
 
   // Create role point entry (lookup participation record)
   const participation = await tables.listRows(
@@ -356,13 +377,32 @@ async function recalculateLedgerEntries(
 
   const role = participation.total > 0 ? participation.rows[0].role : null;
   const rolePoints = role ? (ROLE_BASE_POINTS[role as keyof typeof ROLE_BASE_POINTS] ?? 0) : 0;
+  const targetRolePoints = rolePoints;
 
-  if (rolePoints > 0) {
+  // Append grade adjustment if there is a difference
+  const gradeDiff = targetGradePoints - currentGradePoints;
+  if (gradeDiff !== 0) {
     await tables.createRow(databaseId, APPWRITE_TABLES.pointLedger, ID.unique(), {
       userId: gradeRequest.targetUserId,
       eventId: gradeRequest.eventId,
-      points: rolePoints,
+      points: gradeDiff,
       conclusionApprovalDate,
+      term,
+      source: "grade",
+      createdBy,
+      createdAt: now,
+    });
+  }
+
+  // Append role adjustment if there is a difference
+  const roleDiff = targetRolePoints - currentRolePoints;
+  if (roleDiff !== 0) {
+    await tables.createRow(databaseId, APPWRITE_TABLES.pointLedger, ID.unique(), {
+      userId: gradeRequest.targetUserId,
+      eventId: gradeRequest.eventId,
+      points: roleDiff,
+      conclusionApprovalDate,
+      term,
       source: "role",
       createdBy,
       createdAt: now,
@@ -372,13 +412,15 @@ async function recalculateLedgerEntries(
 
 /**
  * Finalizes a grade request. Averages all grader reviews, allocates points, and records ledger entries.
- * Scoped to Admin, or authorized reviewer (own event). Chairs cannot grade own event.
+ * Scoped to Admin, Vice Chair, or Committee Lead only. Own-event grading restrictions apply.
  */
-export async function finalizeGrade(gradeRequestId: string, conclusionApprovalDate?: string) {
+export async function finalizeGrade(gradeRequestId: string) {
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
   const user = await requireAuth();
   const graderId = user.authUser.id;
+
+  z.string().min(1).parse(gradeRequestId);
 
   const gradeRequest = (await tables.getRow(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
@@ -386,22 +428,33 @@ export async function finalizeGrade(gradeRequestId: string, conclusionApprovalDa
     gradeRequestId
   )) as unknown as GradeRequest;
 
+  if (gradeRequest.status === "finalized") {
+    throw new Error("Grade request is already finalized.");
+  }
+
   if (!user.isAdmin) {
-    const hasRole = user.eventRoles.some(
-      (assignment) => assignment.active && assignment.eventId === gradeRequest.eventId
-    );
+    const hasRole = hasEventRole(user, gradeRequest.eventId, ["Vice Chair", "Committee Lead"]);
     if (!hasRole) {
       throw new Error("Only authorized event reviewers or admins can finalize grades.");
     }
-
-    const chairEventIds = user.eventRoles
-      .filter((assignment) => assignment.active && assignment.role === "Chair")
-      .map((assignment) => assignment.eventId);
-
-    if (isSelfEventGrade(graderId, gradeRequest.eventId, chairEventIds)) {
-      throw new Error("Chairs cannot grade participants under their own event.");
-    }
   }
+
+  // Find Admin approved conclusion report for this event
+  const approvalLogs = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.auditLogs,
+    [
+      Query.equal("action", "CONCLUSION_REPORT_APPROVED"),
+      Query.equal("targetId", gradeRequest.eventId),
+      Query.limit(1),
+    ]
+  );
+
+  if (approvalLogs.total === 0) {
+    throw new Error("Conclusion report for this event is not approved by Admin.");
+  }
+
+  const approvalDate = approvalLogs.rows[0].createdAt;
 
   // Fetch all reviews
   const reviewsResult = await tables.listRows(
@@ -417,9 +470,8 @@ export async function finalizeGrade(gradeRequestId: string, conclusionApprovalDa
   const reviews = reviewsResult.rows as unknown as GradeReview[];
   const grades = reviews.map((r) => r.gradeValue);
   const averageGrade = calculateAverageGrade(grades);
-  const approvalDate = conclusionApprovalDate || new Date().toISOString();
 
-  // Recalculate ledger entries
+  // Recalculate ledger entries (delta-based)
   await recalculateLedgerEntries(
     tables,
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
@@ -456,10 +508,16 @@ export async function adminOverrideGrade(
   const user = await requireAdmin();
   const changerId = user.authUser.id;
 
+  const validated = AdminGradeOverrideSchema.parse({
+    gradeReviewId,
+    newGradeValue,
+    reason,
+  });
+
   const review = (await tables.getRow(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.gradeReviews,
-    gradeReviewId
+    validated.gradeReviewId
   )) as unknown as GradeReview;
 
   const originalValue = review.gradeValue;
@@ -467,10 +525,10 @@ export async function adminOverrideGrade(
 
   const auditEntry: GradeAuditEntry = {
     originalValue,
-    newValue: newGradeValue,
+    newValue: validated.newGradeValue,
     changedBy: changerId,
     changedAt: now,
-    reason,
+    reason: validated.reason,
   };
 
   let auditList: GradeAuditEntry[] = [];
@@ -490,9 +548,9 @@ export async function adminOverrideGrade(
   const updatedReview = await tables.updateRow(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.gradeReviews,
-    gradeReviewId,
+    validated.gradeReviewId,
     {
-      gradeValue: newGradeValue,
+      gradeValue: validated.newGradeValue,
       audit_metadata: JSON.stringify(auditList),
     }
   );
@@ -502,10 +560,10 @@ export async function adminOverrideGrade(
     action: "GRADE_OVERRIDDEN" as unknown as AuditAction,
     actorUserId: changerId,
     metadata: {
-      gradeReviewId,
+      gradeReviewId: validated.gradeReviewId,
       originalValue,
-      newValue: newGradeValue,
-      reason,
+      newValue: validated.newGradeValue,
+      reason: validated.reason,
     },
     targetId: review.gradeRequestId,
     targetType: "grade_request",
@@ -560,10 +618,14 @@ export async function adminOverrideGrade(
 /**
  * Fetches point ledger entries for a volunteer. Scoped to Admin or Self.
  */
-export async function getVolunteerPoints(userId: string) {
+export async function getVolunteerPoints(userId: string, params?: { limit?: number; offset?: number }) {
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
   const user = await requireAuth();
+
+  z.string().min(1).parse(userId);
+  const limit = params?.limit !== undefined ? z.number().int().min(1).max(500).parse(params.limit) : 500;
+  const offset = params?.offset !== undefined ? z.number().int().min(0).parse(params.offset) : 0;
 
   if (!user.isAdmin && user.authUser.id !== userId) {
     throw new Error("Unauthorized access to point ledger.");
@@ -572,7 +634,11 @@ export async function getVolunteerPoints(userId: string) {
   const result = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.pointLedger,
-    [Query.equal("userId", userId), Query.limit(500)]
+    [
+      Query.equal("userId", userId),
+      Query.limit(limit),
+      Query.offset(offset),
+    ]
   );
 
   return result.rows as unknown as PointLedgerEntry[];
@@ -593,13 +659,21 @@ export async function toggleTopBoardExclusion(data: {
   const user = await requireAdmin();
   const changerId = user.authUser.id;
 
+  const validated = z.object({
+    userId: z.string().min(1),
+    term: TermSchema,
+    year: YearSchema,
+    excluded: z.boolean(),
+    reason: z.string().optional(),
+  }).parse(data);
+
   const existing = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.termScoringConfig,
     [
-      Query.equal("userId", data.userId),
-      Query.equal("term", data.term),
-      Query.equal("year", data.year),
+      Query.equal("userId", validated.userId),
+      Query.equal("term", validated.term),
+      Query.equal("year", validated.year),
       Query.limit(1),
     ]
   );
@@ -610,8 +684,8 @@ export async function toggleTopBoardExclusion(data: {
       APPWRITE_TABLES.termScoringConfig,
       existing.rows[0].$id,
       {
-        excludedFromTopBoard: data.excluded,
-        reason: data.reason || "",
+        excludedFromTopBoard: validated.excluded,
+        reason: validated.reason || "",
         setBy: changerId,
       }
     );
@@ -622,11 +696,11 @@ export async function toggleTopBoardExclusion(data: {
       APPWRITE_TABLES.termScoringConfig,
       ID.unique(),
       {
-        userId: data.userId,
-        term: data.term,
-        year: data.year,
-        excludedFromTopBoard: data.excluded,
-        reason: data.reason || "",
+        userId: validated.userId,
+        term: validated.term,
+        year: validated.year,
+        excludedFromTopBoard: validated.excluded,
+        reason: validated.reason || "",
         setBy: changerId,
       }
     );
@@ -646,6 +720,12 @@ export async function getLeaderboard(params: {
   const { tables } = getAppwriteAdminServices();
   await requireAuth();
 
+  const validated = z.object({
+    term: TermSchema.optional(),
+    month: MonthSchema.optional(),
+    year: YearSchema.optional(),
+  }).parse(params);
+
   const ledgerResult = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.pointLedger,
@@ -661,10 +741,10 @@ export async function getLeaderboard(params: {
   const configs = configResult.rows as unknown as TermScoringConfig[];
 
   // Filter ledger
-  if (params.month !== undefined && params.year !== undefined) {
-    entries = filterLedgerByMonth(entries, params.month, params.year);
-  } else if (params.term !== undefined && params.year !== undefined) {
-    entries = filterLedgerByTerm(entries, params.term, params.year);
+  if (validated.month !== undefined && validated.year !== undefined) {
+    entries = filterLedgerByMonth(entries, validated.month, validated.year);
+  } else if (validated.term !== undefined) {
+    entries = filterLedgerByTerm(entries, validated.term);
   }
 
   // Aggregate user points
@@ -688,8 +768,8 @@ export async function getLeaderboard(params: {
   for (const [userId, userEntries] of userMap.entries()) {
     const isEligible = isEligibleForTopBoard(
       userId,
-      params.term || "",
-      params.year || 0,
+      validated.term || "",
+      validated.year || 0,
       configs
     );
 

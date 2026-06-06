@@ -16,9 +16,12 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const gradeRequests = await listGradeRequests();
+    const { searchParams } = new URL(request.url);
+    const limit = searchParams.get("limit") ? Number(searchParams.get("limit")) : undefined;
+    const offset = searchParams.get("offset") ? Number(searchParams.get("offset")) : undefined;
+    const gradeRequests = await listGradeRequests({ limit, offset });
     return NextResponse.json({ gradeRequests });
   } catch (error) {
     return jsonError(
