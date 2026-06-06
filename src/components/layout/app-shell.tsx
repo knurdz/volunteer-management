@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { LayoutDashboard, LogOut, MailCheck, ShieldCheck, UsersRound } from "lucide-react";
+import {
+  LayoutDashboard,
+  LogOut,
+  MailCheck,
+  Settings,
+  ShieldCheck,
+  UsersRound,
+} from "lucide-react";
 import { APP_NAME, ORGANIZATION_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/features/access-control/types";
@@ -9,7 +16,7 @@ export function AppShell({
   children,
   user,
 }: Readonly<{
-  active: "dashboard" | "verification" | "users";
+  active: "dashboard" | "settings" | "users" | "verification";
   children: React.ReactNode;
   user: SessionUser;
 }>) {
@@ -33,6 +40,12 @@ export function AppShell({
             icon: UsersRound,
             id: "users",
             label: "Access Control",
+          },
+          {
+            href: "/admin/settings",
+            icon: Settings,
+            id: "settings",
+            label: "System Settings",
           },
         ]
       : []),
