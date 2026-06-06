@@ -32,7 +32,6 @@ type PanelTab = "audit" | "exclusions" | "permissions" | "terms";
 type NoticeStatus = "error" | "idle" | "success";
 type TermFormState = {
   endDate: string;
-  label: string;
   notes: string;
   startDate: string;
   status: Exclude<IeeeTermStatus, "ACTIVE">;
@@ -56,7 +55,6 @@ type Confirmation =
 const suggestedTerm = getSuggestedTermRange();
 const emptyTermForm: TermFormState = {
   endDate: suggestedTerm.endDate,
-  label: suggestedTerm.label,
   notes: "",
   startDate: suggestedTerm.startDate,
   status: "DRAFT",
@@ -126,7 +124,6 @@ export function SystemSettingsPanel({
     [initialUsers],
   );
   const selectedTerm = terms.find((term) => term.$id === selectedTermId);
-  const editingTerm = terms.find((term) => term.$id === editingTermId);
   const activeExclusions = exclusions.filter(isActiveTopBoardExclusion);
 
   function setNotice(nextStatus: NoticeStatus, nextMessage: string) {
@@ -145,7 +142,6 @@ export function SystemSettingsPanel({
     setTermForm((current) => ({
       ...current,
       endDate: suggested.endDate,
-      label: suggested.label,
       startDate: suggested.startDate,
     }));
   }
@@ -187,7 +183,10 @@ export function SystemSettingsPanel({
           ? `/api/admin/settings/terms/${editingTermId}`
           : "/api/admin/settings/terms",
         {
-          body: JSON.stringify(termForm),
+          body: JSON.stringify({
+            ...termForm,
+            label: formatSafeTermLabel(termForm.startDate),
+          }),
           headers: { "Content-Type": "application/json" },
           method: editingTermId ? "PATCH" : "POST",
         },
@@ -416,7 +415,6 @@ export function SystemSettingsPanel({
       {tab === "terms" ? (
         <TermsPanel
           activeTermId={activeTermId}
-          editingTerm={editingTerm}
           editingTermId={editingTermId}
           pendingAction={pendingAction}
           requestActivate={(term) => setConfirmation({ kind: "activate-term", term })}
@@ -481,7 +479,6 @@ export function SystemSettingsPanel({
 
 function TermsPanel({
   activeTermId,
-  editingTerm,
   editingTermId,
   pendingAction,
   requestActivate,
@@ -495,7 +492,6 @@ function TermsPanel({
   useSuggestedTermDates,
 }: {
   activeTermId: string;
-  editingTerm?: IeeeTerm;
   editingTermId: string | null;
   pendingAction: string | null;
   requestActivate: (term: IeeeTerm) => void;
@@ -528,14 +524,14 @@ function TermsPanel({
           <label className="block text-sm font-medium text-text-secondary">
             Label
             <input
-              className={cn(inputClasses, "mt-1")}
-              onChange={(event) =>
-                setTermForm((current) => ({ ...current, label: event.target.value }))
-              }
-              placeholder="2025/26"
+              className={cn(inputClasses, "mt-1 bg-surface-muted")}
+              readOnly
               required
-              value={termForm.label}
+              value={formatSafeTermLabel(termForm.startDate)}
             />
+            <span className="mt-1 block text-xs text-text-muted">
+              Automatically derived from the selected start year.
+            </span>
           </label>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
@@ -546,10 +542,6 @@ function TermsPanel({
                 onChange={(event) =>
                   setTermForm((current) => ({
                     ...current,
-                    label:
-                      current.label === formatSafeTermLabel(current.startDate)
-                        ? formatSafeTermLabel(event.target.value)
-                        : current.label,
                     startDate: event.target.value,
                   }))
                 }
@@ -572,31 +564,6 @@ function TermsPanel({
               />
             </label>
           </div>
-
-          {editingTermId ? (
-            <label className="block text-sm font-medium text-text-secondary">
-              Status
-              <select
-                className={cn(inputClasses, "mt-1")}
-                disabled={editingTerm?.active}
-                onChange={(event) =>
-                  setTermForm((current) => ({
-                    ...current,
-                    status: event.target.value as Exclude<IeeeTermStatus, "ACTIVE">,
-                  }))
-                }
-                value={termForm.status}
-              >
-                <option value="DRAFT">Draft</option>
-                <option value="CLOSED">Closed</option>
-              </select>
-              {editingTerm?.active ? (
-                <span className="mt-1 block text-xs text-text-muted">
-                  Active terms are closed through the Review Close action.
-                </span>
-              ) : null}
-            </label>
-          ) : null}
 
           <label className="block text-sm font-medium text-text-secondary">
             Notes
@@ -670,21 +637,26 @@ function TermsPanel({
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      onClick={() => {
-                        setEditingTermId(term.$id);
-                        setTermForm({
-                          endDate: term.endDate,
-                          label: term.label,
-                          notes: term.notes ?? "",
-                          startDate: term.startDate,
-                          status: term.status === "CLOSED" ? "CLOSED" : "DRAFT",
-                        });
-                      }}
-                      type="button"
-                    >
-                      Edit
-                    </Button>
+                    {term.status !== "CLOSED" ? (
+                      <Button
+                        onClick={() => {
+                          setEditingTermId(term.$id);
+                          setTermForm({
+                            endDate: term.endDate,
+                            notes: term.notes ?? "",
+                            startDate: term.startDate,
+                            status: "DRAFT",
+                          });
+                        }}
+                        type="button"
+                      >
+                        Edit
+                      </Button>
+                    ) : (
+                      <span className="text-xs font-medium text-text-muted">
+                        Historical record
+                      </span>
+                    )}
                     {!term.active && term.status !== "CLOSED" ? (
                       <Button
                         disabled={pendingAction === `term:activate:${term.$id}`}
@@ -785,7 +757,7 @@ function TopBoardExclusionsPanel({
               {terms.length > 0 ? (
                 terms.map((term) => (
                   <option key={term.$id} value={term.$id}>
-                    {term.label}
+                    {term.label} ({term.active ? "Active" : term.status})
                   </option>
                 ))
               ) : (
@@ -810,7 +782,8 @@ function TopBoardExclusionsPanel({
               {users.length > 0 ? (
                 users.map((user) => (
                   <option key={user.authUserId} value={user.authUserId}>
-                    {getUserDisplayName(user, user.authUserId)}
+                    {getUserDisplayName(user, user.authUserId)} -{" "}
+                    {user.uomEmail ?? user.googleEmail}
                   </option>
                 ))
               ) : (
@@ -980,6 +953,10 @@ function AuditPanel({
   refreshAuditLogs: (event?: React.FormEvent<HTMLFormElement>) => void;
   setAuditFilters: React.Dispatch<React.SetStateAction<AuditFilters>>;
 }) {
+  const actionOptions = Array.from(
+    new Set([...auditActionOptions, ...auditLogs.map((log) => log.action)]),
+  ).sort();
+
   return (
     <div className="space-y-5">
       <form
@@ -996,7 +973,7 @@ function AuditPanel({
             value={auditFilters.action}
           >
             <option value="">All actions</option>
-            {auditActionOptions.map((action) => (
+            {actionOptions.map((action) => (
               <option key={action} value={action}>
                 {action}
               </option>
@@ -1093,7 +1070,7 @@ function AuditPanel({
                   <p>{log.targetType}</p>
                   <p className="mt-1 max-w-48 truncate text-xs">{log.targetId}</p>
                 </td>
-                <td className="px-4 py-4 text-xs leading-5 text-text-secondary">
+                <td className="max-w-96 break-words px-4 py-4 text-xs leading-5 text-text-secondary">
                   {log.metadata ? JSON.stringify(log.metadata) : "None"}
                 </td>
               </tr>
@@ -1224,6 +1201,10 @@ function getConfirmationDetails(confirmation: Confirmation) {
       { label: "Action", value: "Close IEEE term" },
       { label: "Term", value: confirmation.term.label },
       { label: "Dates", value: `${confirmation.term.startDate} to ${confirmation.term.endDate}` },
+      {
+        label: "Important",
+        value: "Closed terms are permanent historical records and cannot be reopened.",
+      },
     ];
   }
 

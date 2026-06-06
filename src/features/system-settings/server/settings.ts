@@ -9,9 +9,14 @@ import { writeAuditLog } from "@/server/audit";
 import { isAppwriteNotFound } from "@/server/errors";
 import {
   assertNoOverlappingTerms,
+  assertTermCanBeActivated,
+  assertTermCanBeUpdated,
+  assertValidTermLabel,
   assertValidTermDates,
   buildPermissionOverview,
+  resolveActiveTermState,
 } from "@/features/system-settings/lib/rules";
+import { runTablesTransaction } from "@/features/system-settings/server/transactions";
 import type {
   AuditLog,
   IeeeTerm,
@@ -105,10 +110,12 @@ export async function getIeeeTerm(termId: string) {
 async function upsertSystemSetting({
   actorUserId,
   key,
+  transactionId,
   value,
 }: {
   actorUserId: string;
   key: string;
+  transactionId: string;
   value: string;
 }) {
   const env = getServerEnv();
@@ -122,23 +129,25 @@ async function upsertSystemSetting({
   let row: AppRow;
 
   try {
-    row = await tables.updateRow<AppRow>(
-      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-      APPWRITE_TABLES.systemSettings,
-      key,
-      payload,
-    );
+    row = await tables.updateRow<AppRow>({
+      data: payload,
+      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      rowId: key,
+      tableId: APPWRITE_TABLES.systemSettings,
+      transactionId,
+    });
   } catch (error) {
     if (!isAppwriteNotFound(error)) {
       throw error;
     }
 
-    row = await tables.createRow<AppRow>(
-      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-      APPWRITE_TABLES.systemSettings,
-      key,
-      payload,
-    );
+    row = await tables.createRow<AppRow>({
+      data: payload,
+      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      rowId: key,
+      tableId: APPWRITE_TABLES.systemSettings,
+      transactionId,
+    });
   }
 
   await writeAuditLog({
@@ -147,6 +156,7 @@ async function upsertSystemSetting({
     metadata: { key, value },
     targetId: key,
     targetType: "system_setting",
+    transactionId,
   });
 
   return toSystemSetting(row);
@@ -191,37 +201,44 @@ export async function createIeeeTerm({
   const existingTerms = await listIeeeTerms();
 
   assertValidTermDates({ endDate, startDate });
-  assertNoOverlappingTerms({ endDate, startDate, status: "DRAFT" }, existingTerms);
+  assertValidTermLabel(label, startDate);
+  assertNoOverlappingTerms({ endDate, startDate }, existingTerms);
 
   const now = new Date().toISOString();
-  const row = await tables.createRow<AppRow>(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.ieeeTerms,
-    ID.unique(),
-    {
-      active: false,
-      createdAt: now,
-      createdBy: actorUserId,
-      endDate,
-      label,
-      notes: notes ?? "",
-      startDate,
-      status: "DRAFT",
-      updatedAt: now,
-      updatedBy: actorUserId,
-    },
-  );
-  const term = toIeeeTerm(row);
+  const termId = ID.unique();
 
-  await writeAuditLog({
-    action: "IEEE_TERM_CREATED",
-    actorUserId,
-    metadata: { endDate, label, startDate },
-    targetId: term.$id,
-    targetType: "ieee_term",
+  return runTablesTransaction(tables, async (transactionId) => {
+    const row = await tables.createRow<AppRow>({
+      data: {
+        active: false,
+        createdAt: now,
+        createdBy: actorUserId,
+        endDate,
+        label,
+        notes: notes ?? "",
+        startDate,
+        status: "DRAFT",
+        updatedAt: now,
+        updatedBy: actorUserId,
+      },
+      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      rowId: termId,
+      tableId: APPWRITE_TABLES.ieeeTerms,
+      transactionId,
+    });
+    const term = toIeeeTerm(row);
+
+    await writeAuditLog({
+      action: "IEEE_TERM_CREATED",
+      actorUserId,
+      metadata: { endDate, label, startDate },
+      targetId: term.$id,
+      targetType: "ieee_term",
+      transactionId,
+    });
+
+    return term;
   });
-
-  return term;
 }
 
 export async function updateIeeeTerm({
@@ -245,50 +262,58 @@ export async function updateIeeeTerm({
   const { tables } = getAppwriteAdminServices();
   const existingTerms = await listIeeeTerms();
   const currentTerm = await getIeeeTerm(termId);
+
+  assertTermCanBeUpdated(currentTerm);
+
   const nextStatus: IeeeTermStatus =
     currentTerm.active && status !== "CLOSED" ? "ACTIVE" : status;
 
   assertValidTermDates({ endDate, startDate });
-  assertNoOverlappingTerms({ $id: termId, endDate, startDate, status: nextStatus }, existingTerms);
+  assertValidTermLabel(label, startDate);
+  assertNoOverlappingTerms({ $id: termId, endDate, startDate }, existingTerms);
 
-  const row = await tables.updateRow<AppRow>(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.ieeeTerms,
-    termId,
-    {
-      active: nextStatus === "ACTIVE",
-      endDate,
-      label,
-      notes: notes ?? "",
-      startDate,
-      status: nextStatus,
-      updatedAt: new Date().toISOString(),
-      updatedBy: actorUserId,
-    },
-  );
-  const term = toIeeeTerm(row);
+  const activeTermSetting =
+    nextStatus === "CLOSED" ? await getActiveTermSetting() : null;
 
-  if (nextStatus === "CLOSED") {
-    const activeTermSetting = await getActiveTermSetting();
+  return runTablesTransaction(tables, async (transactionId) => {
+    const row = await tables.updateRow<AppRow>({
+      data: {
+        active: nextStatus === "ACTIVE",
+        endDate,
+        label,
+        notes: notes ?? "",
+        startDate,
+        status: nextStatus,
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorUserId,
+      },
+      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      rowId: termId,
+      tableId: APPWRITE_TABLES.ieeeTerms,
+      transactionId,
+    });
+    const term = toIeeeTerm(row);
 
-    if (activeTermSetting?.value === termId) {
+    if (nextStatus === "CLOSED" && activeTermSetting?.value === termId) {
       await upsertSystemSetting({
         actorUserId,
         key: ACTIVE_TERM_SETTING_KEY,
+        transactionId,
         value: "",
       });
     }
-  }
 
-  await writeAuditLog({
-    action: "IEEE_TERM_UPDATED",
-    actorUserId,
-    metadata: { endDate, label, startDate, status: nextStatus },
-    targetId: term.$id,
-    targetType: "ieee_term",
+    await writeAuditLog({
+      action: "IEEE_TERM_UPDATED",
+      actorUserId,
+      metadata: { endDate, label, startDate, status: nextStatus },
+      targetId: term.$id,
+      targetType: "ieee_term",
+      transactionId,
+    });
+
+    return term;
   });
-
-  return term;
 }
 
 export async function activateIeeeTerm({
@@ -303,65 +328,127 @@ export async function activateIeeeTerm({
   const terms = await listIeeeTerms();
   const selectedTerm = terms.find((term) => term.$id === termId) ?? await getIeeeTerm(termId);
 
+  assertTermCanBeActivated(selectedTerm);
+
   assertValidTermDates(selectedTerm);
+  assertValidTermLabel(selectedTerm.label, selectedTerm.startDate);
   assertNoOverlappingTerms(
     {
       $id: termId,
       endDate: selectedTerm.endDate,
       startDate: selectedTerm.startDate,
-      status: "ACTIVE",
     },
     terms,
   );
 
+  if (selectedTerm.active && selectedTerm.status === "ACTIVE") {
+    await reconcileActiveTermState(actorUserId, terms);
+    return selectedTerm;
+  }
+
   const now = new Date().toISOString();
 
-  await Promise.all(
-    terms
-      .filter((term) => term.active && term.$id !== termId)
-      .map((term) =>
-        tables.updateRow(
-          env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-          APPWRITE_TABLES.ieeeTerms,
-          term.$id,
-          {
-            active: false,
-            status: "CLOSED",
-            updatedAt: now,
-            updatedBy: actorUserId,
-          },
-        ),
-      ),
+  return runTablesTransaction(tables, async (transactionId) => {
+    for (const term of terms.filter(
+      (term) => term.active && term.$id !== termId,
+    )) {
+      await tables.updateRow({
+        data: {
+          active: false,
+          status: "CLOSED",
+          updatedAt: now,
+          updatedBy: actorUserId,
+        },
+        databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+        rowId: term.$id,
+        tableId: APPWRITE_TABLES.ieeeTerms,
+        transactionId,
+      });
+    }
+
+    const row = await tables.updateRow<AppRow>({
+      data: {
+        active: true,
+        status: "ACTIVE",
+        updatedAt: now,
+        updatedBy: actorUserId,
+      },
+      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      rowId: termId,
+      tableId: APPWRITE_TABLES.ieeeTerms,
+      transactionId,
+    });
+    const term = toIeeeTerm(row);
+
+    await upsertSystemSetting({
+      actorUserId,
+      key: ACTIVE_TERM_SETTING_KEY,
+      transactionId,
+      value: term.$id,
+    });
+
+    await writeAuditLog({
+      action: "IEEE_TERM_ACTIVATED",
+      actorUserId,
+      metadata: { label: term.label },
+      targetId: term.$id,
+      targetType: "ieee_term",
+      transactionId,
+    });
+
+    return term;
+  });
+}
+
+export async function reconcileActiveTermState(
+  actorUserId = "system",
+  suppliedTerms?: IeeeTerm[],
+) {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  const [terms, activeTermSetting] = await Promise.all([
+    suppliedTerms ? Promise.resolve(suppliedTerms) : listIeeeTerms(),
+    getActiveTermSetting(),
+  ]);
+  const resolution = resolveActiveTermState(
+    terms,
+    activeTermSetting ? activeTermSetting.value ?? "" : null,
+  );
+  const duplicateActiveTerms = terms.filter((term) =>
+    resolution.duplicateActiveTermIds.includes(term.$id),
   );
 
-  const row = await tables.updateRow<AppRow>(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.ieeeTerms,
-    termId,
-    {
-      active: true,
-      status: "ACTIVE",
-      updatedAt: now,
-      updatedBy: actorUserId,
-    },
-  );
-  const term = toIeeeTerm(row);
+  if (!resolution.needsRepair) {
+    return resolution.activeTermId;
+  }
 
-  await upsertSystemSetting({
-    actorUserId,
-    key: ACTIVE_TERM_SETTING_KEY,
-    value: term.$id,
+  const now = new Date().toISOString();
+
+  await runTablesTransaction(tables, async (transactionId) => {
+    for (const term of duplicateActiveTerms) {
+      await tables.updateRow({
+        data: {
+          active: false,
+          status: "CLOSED",
+          updatedAt: now,
+          updatedBy: actorUserId,
+        },
+        databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+        rowId: term.$id,
+        tableId: APPWRITE_TABLES.ieeeTerms,
+        transactionId,
+      });
+    }
+
+    await upsertSystemSetting({
+      actorUserId,
+      key: ACTIVE_TERM_SETTING_KEY,
+      transactionId,
+      value: resolution.activeTermId,
+    });
   });
 
-  await writeAuditLog({
-    action: "IEEE_TERM_ACTIVATED",
-    actorUserId,
-    metadata: { label: term.label },
-    targetId: term.$id,
-    targetType: "ieee_term",
-  });
-
-  return term;
+  return resolution.activeTermId;
 }
 
 export function getPermissionOverview(adminEmail: string): PermissionOverview {
@@ -418,14 +505,14 @@ export async function listAuditLogs({
 
 export async function getInitialSystemSettingsData() {
   const env = getServerEnv();
-  const [terms, activeTermSetting, auditLogs] = await Promise.all([
+  const [terms, auditLogs] = await Promise.all([
     listIeeeTerms(),
-    getActiveTermSetting(),
     listAuditLogs(),
   ]);
+  const activeTermId = await reconcileActiveTermState("system", terms);
 
   return {
-    activeTermId: activeTermSetting?.value ?? terms.find((term) => term.active)?.$id ?? "",
+    activeTermId,
     auditLogs,
     permissions: getPermissionOverview(env.ADMIN_EMAIL),
     terms,

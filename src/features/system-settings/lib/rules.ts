@@ -1,7 +1,6 @@
 import { EVENT_ROLES, SB_ROLES } from "@/lib/config";
 import type {
   IeeeTerm,
-  IeeeTermStatus,
   PermissionOverview,
   TopBoardExclusion,
 } from "@/features/system-settings/types";
@@ -12,6 +11,22 @@ export type TermDateRange = {
   endDate: string;
   startDate: string;
 };
+
+export function assertTermCanBeUpdated(
+  term: Pick<IeeeTerm, "status">,
+) {
+  if (term.status === "CLOSED") {
+    throw new Error("Closed IEEE terms are historical records and cannot be changed.");
+  }
+}
+
+export function assertTermCanBeActivated(
+  term: Pick<IeeeTerm, "status">,
+) {
+  if (term.status === "CLOSED") {
+    throw new Error("Closed IEEE terms cannot be reactivated.");
+  }
+}
 
 export function isIsoDateOnly(value: string) {
   if (!DATE_PATTERN.test(value)) {
@@ -44,6 +59,14 @@ export function formatTermLabel(startDate: string) {
   return `${startYear}/${nextYearSuffix}`;
 }
 
+export function assertValidTermLabel(label: string, startDate: string) {
+  const expectedLabel = formatTermLabel(startDate);
+
+  if (label !== expectedLabel) {
+    throw new Error(`Term label must be ${expectedLabel} for the selected start date.`);
+  }
+}
+
 export function getSuggestedTermRange(reference = new Date()) {
   const year = reference.getUTCFullYear();
   const month = reference.getUTCMonth();
@@ -64,16 +87,14 @@ export function dateRangesOverlap(first: TermDateRange, second: TermDateRange) {
 }
 
 export function assertNoOverlappingTerms(
-  candidate: TermDateRange & { $id?: string; status?: IeeeTermStatus },
-  terms: Array<Pick<IeeeTerm, "$id" | "endDate" | "startDate" | "status">>,
+  candidate: TermDateRange & { $id?: string },
+  terms: Array<Pick<IeeeTerm, "$id" | "endDate" | "startDate">>,
 ) {
   assertValidTermDates(candidate);
 
   const overlap = terms.find(
     (term) =>
       term.$id !== candidate.$id &&
-      term.status !== "CLOSED" &&
-      candidate.status !== "CLOSED" &&
       dateRangesOverlap(candidate, term),
   );
 
@@ -86,6 +107,30 @@ export function isActiveTopBoardExclusion(
   exclusion: Pick<TopBoardExclusion, "active" | "revokedAt">,
 ) {
   return exclusion.active && !exclusion.revokedAt;
+}
+
+export function resolveActiveTermState(
+  terms: Array<Pick<IeeeTerm, "$id" | "active" | "status" | "updatedAt">>,
+  configuredTermId?: string | null,
+) {
+  const normalizedConfiguredTermId = configuredTermId ?? "";
+  const activeTerms = terms
+    .filter((term) => term.active && term.status === "ACTIVE")
+    .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
+  const selectedTerm =
+    activeTerms.find((term) => term.$id === normalizedConfiguredTermId) ??
+    activeTerms[0];
+
+  return {
+    activeTermId: selectedTerm?.$id ?? "",
+    duplicateActiveTermIds: activeTerms
+      .filter((term) => term.$id !== selectedTerm?.$id)
+      .map((term) => term.$id),
+    needsRepair:
+      configuredTermId === null ||
+      normalizedConfiguredTermId !== (selectedTerm?.$id ?? "") ||
+      activeTerms.length > 1,
+  };
 }
 
 export function buildPermissionOverview(adminEmail: string): PermissionOverview {

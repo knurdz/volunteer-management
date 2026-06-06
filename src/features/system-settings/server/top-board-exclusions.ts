@@ -10,6 +10,7 @@ import { writeAuditLog } from "@/server/audit";
 import { isAppwriteNotFound } from "@/server/errors";
 import { getProfile } from "@/features/access-control/server/profiles";
 import { getIeeeTerm } from "@/features/system-settings/server/settings";
+import { runTablesTransaction } from "@/features/system-settings/server/transactions";
 import type { TopBoardExclusion } from "@/features/system-settings/types";
 
 type AppRow = Models.Row & Record<string, unknown>;
@@ -91,53 +92,66 @@ export async function addTopBoardExclusion({
   await getIeeeTerm(termId);
   await requireExcludableProfile(userId);
 
-  let row: AppRow;
+  let existingRow: AppRow | undefined;
 
   try {
-    row = await tables.updateRow<AppRow>(
+    existingRow = await tables.getRow<AppRow>(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.topBoardExclusions,
       rowId,
-      {
-        active: true,
-        createdAt: now,
-        createdBy: actorUserId,
-        reason,
-        revokedAt: null,
-        revokedBy: "",
-        termId,
-        userId,
-      },
     );
   } catch (error) {
     if (!isAppwriteNotFound(error)) {
       throw error;
     }
-
-    row = await tables.createRow<AppRow>(
-      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-      APPWRITE_TABLES.topBoardExclusions,
-      rowId,
-      {
-        active: true,
-        createdAt: now,
-        createdBy: actorUserId,
-        reason,
-        termId,
-        userId,
-      },
-    );
   }
 
-  await writeAuditLog({
-    action: "TOP_BOARD_EXCLUSION_ADDED",
-    actorUserId,
-    metadata: { reason, termId },
-    targetId: userId,
-    targetType: "profile",
-  });
+  if (existingRow) {
+    const existingExclusion = toTopBoardExclusion(existingRow);
 
-  return toTopBoardExclusion(row);
+    if (existingExclusion.active && !existingExclusion.revokedAt) {
+      return existingExclusion;
+    }
+  }
+
+  return runTablesTransaction(tables, async (transactionId) => {
+    const payload = {
+      active: true,
+      createdAt: now,
+      createdBy: actorUserId,
+      reason,
+      revokedAt: null,
+      revokedBy: "",
+      termId,
+      userId,
+    };
+    const row = existingRow
+      ? await tables.updateRow<AppRow>({
+          data: payload,
+          databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+          rowId,
+          tableId: APPWRITE_TABLES.topBoardExclusions,
+          transactionId,
+        })
+      : await tables.createRow<AppRow>({
+          data: payload,
+          databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+          rowId,
+          tableId: APPWRITE_TABLES.topBoardExclusions,
+          transactionId,
+        });
+
+    await writeAuditLog({
+      action: "TOP_BOARD_EXCLUSION_ADDED",
+      actorUserId,
+      metadata: { reason, termId },
+      targetId: userId,
+      targetType: "profile",
+      transactionId,
+    });
+
+    return toTopBoardExclusion(row);
+  });
 }
 
 export async function revokeTopBoardExclusion({
@@ -149,25 +163,40 @@ export async function revokeTopBoardExclusion({
 }) {
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
-  const row = await tables.updateRow<AppRow>(
+  const existingRow = await tables.getRow<AppRow>(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.topBoardExclusions,
     exclusionId,
-    {
-      active: false,
-      revokedAt: new Date().toISOString(),
-      revokedBy: actorUserId,
-    },
   );
-  const exclusion = toTopBoardExclusion(row);
+  const existingExclusion = toTopBoardExclusion(existingRow);
 
-  await writeAuditLog({
-    action: "TOP_BOARD_EXCLUSION_REMOVED",
-    actorUserId,
-    metadata: { exclusionId, reason: exclusion.reason, termId: exclusion.termId },
-    targetId: exclusion.userId,
-    targetType: "profile",
+  if (!existingExclusion.active || existingExclusion.revokedAt) {
+    return existingExclusion;
+  }
+
+  return runTablesTransaction(tables, async (transactionId) => {
+    const row = await tables.updateRow<AppRow>({
+      data: {
+        active: false,
+        revokedAt: new Date().toISOString(),
+        revokedBy: actorUserId,
+      },
+      databaseId: env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      rowId: exclusionId,
+      tableId: APPWRITE_TABLES.topBoardExclusions,
+      transactionId,
+    });
+    const exclusion = toTopBoardExclusion(row);
+
+    await writeAuditLog({
+      action: "TOP_BOARD_EXCLUSION_REMOVED",
+      actorUserId,
+      metadata: { exclusionId, reason: exclusion.reason, termId: exclusion.termId },
+      targetId: exclusion.userId,
+      targetType: "profile",
+      transactionId,
+    });
+
+    return exclusion;
   });
-
-  return exclusion;
 }
