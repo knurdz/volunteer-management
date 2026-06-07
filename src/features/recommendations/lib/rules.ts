@@ -55,3 +55,15 @@ export function assertCanReportRecommendation({
     throw new Error("Only visible recommendations can be reported.");
   }
 }
+
+export function shouldRecoverAcceptedRequest({
+  existingRecommendation,
+  requestStatus,
+  response,
+}: {
+  existingRecommendation: boolean;
+  requestStatus: string;
+  response: "ACCEPTED" | "REJECTED";
+}) {
+  return existingRecommendation && requestStatus === "PENDING" && response === "ACCEPTED";
+}

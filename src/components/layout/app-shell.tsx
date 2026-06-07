@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LayoutDashboard, LogOut, MailCheck, ShieldCheck, UserRound, UsersRound } from "lucide-react";
+import { Flag, LayoutDashboard, LogOut, MailCheck, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { APP_NAME, ORGANIZATION_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/features/access-control/types";
@@ -9,7 +9,7 @@ export function AppShell({
   children,
   user,
 }: Readonly<{
-  active: "dashboard" | "verification" | "users" | "volunteers";
+  active: "dashboard" | "moderation" | "verification" | "users" | "volunteers";
   children: React.ReactNode;
   user: SessionUser;
 }>) {
@@ -39,6 +39,12 @@ export function AppShell({
             icon: UsersRound,
             id: "users",
             label: "Access Control",
+          },
+          {
+            href: "/admin/recommendations",
+            icon: Flag,
+            id: "moderation",
+            label: "Moderation",
           },
         ]
       : []),

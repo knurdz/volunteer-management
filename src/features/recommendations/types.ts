@@ -5,6 +5,7 @@ export type RecommendationRequest = {
   $id: string;
   requesterId: string;
   respondentId: string;
+  requestKey: string;
   message?: string;
   status: RecommendationRequestStatus;
   createdAt: string;
@@ -22,6 +23,7 @@ export type Recommendation = {
   updatedAt: string;
   hiddenAt?: string;
   hiddenBy?: string;
+  hideReason?: string;
   reportedAt?: string;
   reportedBy?: string;
   reportReason?: string;
@@ -30,7 +32,7 @@ export type Recommendation = {
 export type RecommendationProfileIdentity = {
   userId: string;
   name?: string;
-  googleEmail: string;
+  googleEmail?: string;
   uomEmail?: string;
 };
 
@@ -39,6 +41,11 @@ export type RecommendationWithRespondent = Recommendation & {
 };
 
 export type RecommendationRequestWithProfiles = RecommendationRequest & {
+  requester: RecommendationProfileIdentity | null;
+  respondent: RecommendationProfileIdentity | null;
+};
+
+export type RecommendationWithProfiles = Recommendation & {
   requester: RecommendationProfileIdentity | null;
   respondent: RecommendationProfileIdentity | null;
 };

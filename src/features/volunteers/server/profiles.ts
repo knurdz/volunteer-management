@@ -7,6 +7,10 @@ import { isAppwriteNotFound } from "@/server/errors";
 import { writeAuditLog } from "@/server/audit";
 import { getActiveEventRoleAssignments, getActiveSbRoles } from "@/features/access-control/server/roles";
 import { getProfile } from "@/features/access-control/server/profiles";
+import {
+  canShowVolunteerProfile,
+  canViewPrivateVolunteerProfile,
+} from "@/features/volunteers/lib/profile-visibility";
 import type { SessionUser } from "@/features/access-control/types";
 import type {
   VolunteerProfileDetails,
@@ -19,13 +23,18 @@ type AppRow = Record<string, unknown> & { $id: string };
 function toVolunteerProfileDetails(row: AppRow): VolunteerProfileDetails {
   return {
     $id: row.$id,
+    batchYear: typeof row.batchYear === "string" ? row.batchYear : "",
     bio: typeof row.bio === "string" && row.bio ? row.bio : undefined,
     createdAt: String(row.createdAt),
+    department: typeof row.department === "string" ? row.department : "",
+    faculty: typeof row.faculty === "string" ? row.faculty : "",
     headline: typeof row.headline === "string" && row.headline ? row.headline : undefined,
+    ieeeMembership: typeof row.ieeeMembership === "string" ? row.ieeeMembership : "",
     linkedinUrl:
       typeof row.linkedinUrl === "string" && row.linkedinUrl ? row.linkedinUrl : undefined,
     skills: typeof row.skills === "string" && row.skills ? row.skills : undefined,
     updatedAt: String(row.updatedAt),
+    universityIndex: typeof row.universityIndex === "string" ? row.universityIndex : "",
     userId: String(row.userId),
   };
 }
@@ -63,11 +72,16 @@ export async function upsertMyVolunteerProfileDetails({
   const now = new Date().toISOString();
   const existing = await getVolunteerProfileDetails(user.authUser.id);
   const payload = {
+    batchYear: details.batchYear,
     bio: details.bio,
+    department: details.department,
+    faculty: details.faculty,
     headline: details.headline,
+    ieeeMembership: details.ieeeMembership,
     linkedinUrl: details.linkedinUrl,
     skills: details.skills,
     updatedAt: now,
+    universityIndex: details.universityIndex,
     userId: user.authUser.id,
   };
 
@@ -101,13 +115,22 @@ export async function upsertMyVolunteerProfileDetails({
 
 export async function getVolunteerProfileSummary(
   userId: string,
+  {
+    viewer,
+  }: {
+    viewer?: SessionUser | null;
+  } = {},
 ): Promise<VolunteerProfileSummary | null> {
   const profile = await getProfile(userId);
 
-  if (!profile) {
+  if (!profile || !canShowVolunteerProfile(profile)) {
     return null;
   }
 
+  const isPrivateView = canViewPrivateVolunteerProfile({
+    profileUserId: profile.authUserId,
+    viewer,
+  });
   const [details, sbRoles, eventRoles] = await Promise.all([
     getVolunteerProfileDetails(userId),
     getActiveSbRoles(userId),
@@ -122,11 +145,11 @@ export async function getVolunteerProfileSummary(
       eventTitle: role.eventTitle,
       role: role.role,
     })),
-    googleEmail: profile.googleEmail,
+    googleEmail: isPrivateView ? profile.googleEmail : undefined,
+    isPrivateView,
     name: profile.name,
     sbRoles,
-    uomEmail: profile.uomEmail,
-    uomVerified: profile.uomVerified,
+    uomEmail: isPrivateView ? profile.uomEmail : undefined,
     userId,
   };
 }

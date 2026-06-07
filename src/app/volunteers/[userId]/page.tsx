@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { UserRound } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageHeader } from "@/components/layout/page-header";
@@ -25,40 +24,80 @@ export default async function VolunteerProfilePage({
 }) {
   const user = await getCurrentUser();
 
-  if (!user) {
-    redirect("/login");
-  }
-
   const { userId } = await params;
-  const [profile, recommendations] = await Promise.all([
-    getVolunteerProfileSummary(userId),
-    listVisibleRecommendationsForVolunteer(userId),
-  ]);
+  const profile = await getVolunteerProfileSummary(userId, { viewer: user });
 
   if (!profile) {
+    if (!user) {
+      return (
+        <PublicVolunteerLayout>
+          <PageHeader
+            title="Volunteer Not Found"
+            description="No active verified volunteer profile exists for this user ID."
+          />
+        </PublicVolunteerLayout>
+      );
+    }
+
     return (
       <AppShell active="volunteers" user={user}>
         <PageHeader
           title="Volunteer Not Found"
-          description="No platform profile exists for this user ID."
+          description="No active verified volunteer profile exists for this user ID."
         />
       </AppShell>
     );
   }
   const canRequestRecommendation =
-    user.profile.uomVerified && profile.uomVerified && user.authUser.id !== profile.userId;
-  const canReportRecommendations = user.profile.uomVerified;
-  const profileDisplayName = profile.name || profile.googleEmail;
+    Boolean(user?.profile.uomVerified) && user?.authUser.id !== profile.userId;
+  const canReportRecommendations = Boolean(user?.profile.uomVerified);
+  const profileDisplayName = profile.name || "Verified volunteer";
+  const recommendations = await listVisibleRecommendationsForVolunteer(userId);
+  const content = (
+    <VolunteerProfileContent
+      canReportRecommendations={canReportRecommendations}
+      canRequestRecommendation={canRequestRecommendation}
+      profile={profile}
+      profileDisplayName={profileDisplayName}
+      recommendations={recommendations}
+      userIsUnverified={Boolean(user && !user.profile.uomVerified)}
+    />
+  );
+
+  if (!user) {
+    return <PublicVolunteerLayout>{content}</PublicVolunteerLayout>;
+  }
 
   return (
     <AppShell active="volunteers" user={user}>
-      <div className="space-y-6">
-        <PageHeader
-          title={profileDisplayName}
-          description={profile.details?.headline ?? "Internal volunteer profile"}
-        />
+      {content}
+    </AppShell>
+  );
+}
 
-        <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+function VolunteerProfileContent({
+  canReportRecommendations,
+  canRequestRecommendation,
+  profile,
+  profileDisplayName,
+  recommendations,
+  userIsUnverified,
+}: {
+  canReportRecommendations: boolean;
+  canRequestRecommendation: boolean;
+  profile: NonNullable<Awaited<ReturnType<typeof getVolunteerProfileSummary>>>;
+  profileDisplayName: string;
+  recommendations: Awaited<ReturnType<typeof listVisibleRecommendationsForVolunteer>>;
+  userIsUnverified: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={profileDisplayName}
+        description={profile.details?.headline ?? "Volunteer profile"}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -68,11 +107,18 @@ export default async function VolunteerProfilePage({
               <CardDescription>Account and verification state.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <InfoRow label="Google email" value={profile.googleEmail} />
-              <InfoRow label="UoM email" value={profile.uomEmail ?? "Not verified"} />
-              <Badge tone={profile.uomVerified ? "success" : "warning"}>
-                {profile.uomVerified ? "UoM verified" : "UoM not verified"}
-              </Badge>
+              {profile.isPrivateView ? (
+                <>
+                  <InfoRow label="Google email" value={profile.googleEmail ?? "Hidden"} />
+                  <InfoRow label="UoM email" value={profile.uomEmail ?? "Hidden"} />
+                </>
+              ) : null}
+              <InfoRow label="University index" value={profile.details?.universityIndex ?? "Not provided"} />
+              <InfoRow label="Faculty" value={profile.details?.faculty ?? "Not provided"} />
+              <InfoRow label="Department" value={profile.details?.department ?? "Not provided"} />
+              <InfoRow label="Batch / Year" value={profile.details?.batchYear ?? "Not provided"} />
+              <InfoRow label="IEEE Membership" value={profile.details?.ieeeMembership ?? "Not provided"} />
+              <Badge tone="success">Active verified volunteer</Badge>
             </CardContent>
           </Card>
 
@@ -131,7 +177,7 @@ export default async function VolunteerProfilePage({
                 respondentName={profileDisplayName}
               />
             ) : null}
-            {!user.profile.uomVerified ? (
+            {userIsUnverified ? (
               <p className="text-sm text-text-secondary">
                 Verify your UoM email before requesting or reporting recommendations.
               </p>
@@ -143,7 +189,16 @@ export default async function VolunteerProfilePage({
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+  );
+}
+
+function PublicVolunteerLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="min-h-screen bg-background text-text-primary">
+      <div className="mx-auto w-full max-w-7xl px-5 py-6 sm:px-8 lg:px-10">
+        {children}
+      </div>
+    </main>
   );
 }
 

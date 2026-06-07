@@ -88,5 +88,5 @@ function displayRespondent(recommendation: RecommendationWithRespondent) {
     return `user ${recommendation.respondentId}`;
   }
 
-  return respondent.name || respondent.uomEmail || respondent.googleEmail;
+  return respondent.name || respondent.uomEmail || respondent.googleEmail || respondent.userId;
 }

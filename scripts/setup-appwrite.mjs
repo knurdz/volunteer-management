@@ -87,6 +87,11 @@ const tableDefinitions = [
     name: "Profile Details",
     columns: [
       ["string", "userId", 64, true],
+      ["string", "universityIndex", 40, false],
+      ["string", "faculty", 120, false],
+      ["string", "department", 120, false],
+      ["string", "batchYear", 40, false],
+      ["string", "ieeeMembership", 120, false],
       ["string", "headline", 160, false],
       ["string", "bio", 1200, false],
       ["string", "skills", 500, false],
@@ -102,6 +107,7 @@ const tableDefinitions = [
     columns: [
       ["string", "requesterId", 64, true],
       ["string", "respondentId", 64, true],
+      ["string", "requestKey", 128, false],
       ["string", "message", 500, false],
       ["enum", "status", ["PENDING", "ACCEPTED", "REJECTED"], false, "PENDING"],
       ["datetime", "createdAt", true],
@@ -110,6 +116,7 @@ const tableDefinitions = [
     indexes: [
       ["rec_req_requester_idx", ["requesterId"]],
       ["rec_req_respondent_idx", ["respondentId"]],
+      ["rec_req_key_idx", ["requestKey"]],
       ["rec_req_status_idx", ["status"]],
     ],
   },
@@ -129,6 +136,7 @@ const tableDefinitions = [
       ["datetime", "reportedAt", false],
       ["string", "reportedBy", 64, false],
       ["string", "reportReason", 500, false],
+      ["string", "hideReason", 500, false],
     ],
     indexes: [
       ["recommendations_request_idx", ["requestId"]],

@@ -10,11 +10,20 @@ export function ProfileDetailsForm({
 }: {
   initialDetails: VolunteerProfileDetails | null;
 }) {
+  const [batchYear, setBatchYear] = useState(initialDetails?.batchYear ?? "");
   const [bio, setBio] = useState(initialDetails?.bio ?? "");
+  const [department, setDepartment] = useState(initialDetails?.department ?? "");
+  const [faculty, setFaculty] = useState(initialDetails?.faculty ?? "");
   const [headline, setHeadline] = useState(initialDetails?.headline ?? "");
+  const [ieeeMembership, setIeeeMembership] = useState(
+    initialDetails?.ieeeMembership ?? "",
+  );
   const [linkedinUrl, setLinkedinUrl] = useState(initialDetails?.linkedinUrl ?? "");
   const [skills, setSkills] = useState(initialDetails?.skills ?? "");
   const [status, setStatus] = useState("");
+  const [universityIndex, setUniversityIndex] = useState(
+    initialDetails?.universityIndex ?? "",
+  );
   const [saving, setSaving] = useState(false);
 
   async function saveDetails(event: React.FormEvent<HTMLFormElement>) {
@@ -24,7 +33,17 @@ export function ProfileDetailsForm({
 
     try {
       const response = await fetch("/api/volunteers/me", {
-        body: JSON.stringify({ bio, headline, linkedinUrl, skills }),
+        body: JSON.stringify({
+          batchYear,
+          bio,
+          department,
+          faculty,
+          headline,
+          ieeeMembership,
+          linkedinUrl,
+          skills,
+          universityIndex,
+        }),
         headers: { "Content-Type": "application/json" },
         method: "PUT",
       });
@@ -44,6 +63,54 @@ export function ProfileDetailsForm({
 
   return (
     <form className="space-y-4" onSubmit={saveDetails}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="University Index">
+          <input
+            className="min-h-11 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors focus:border-primary"
+            maxLength={40}
+            onChange={(event) => setUniversityIndex(event.target.value)}
+            required
+            value={universityIndex}
+          />
+        </Field>
+        <Field label="Batch / Year">
+          <input
+            className="min-h-11 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors focus:border-primary"
+            maxLength={40}
+            onChange={(event) => setBatchYear(event.target.value)}
+            required
+            value={batchYear}
+          />
+        </Field>
+        <Field label="Faculty">
+          <input
+            className="min-h-11 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors focus:border-primary"
+            maxLength={120}
+            onChange={(event) => setFaculty(event.target.value)}
+            required
+            value={faculty}
+          />
+        </Field>
+        <Field label="Department">
+          <input
+            className="min-h-11 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors focus:border-primary"
+            maxLength={120}
+            onChange={(event) => setDepartment(event.target.value)}
+            required
+            value={department}
+          />
+        </Field>
+      </div>
+      <Field label="IEEE Membership">
+        <input
+          className="min-h-11 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors focus:border-primary"
+          maxLength={120}
+          onChange={(event) => setIeeeMembership(event.target.value)}
+          placeholder="Member status or membership number"
+          required
+          value={ieeeMembership}
+        />
+      </Field>
       <Field label="Headline">
         <input
           className="min-h-11 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors focus:border-primary"

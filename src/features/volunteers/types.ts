@@ -1,10 +1,15 @@
 export type VolunteerProfileDetails = {
   $id: string;
   userId: string;
+  batchYear: string;
   headline?: string;
   bio?: string;
+  department: string;
+  faculty: string;
+  ieeeMembership: string;
   skills?: string;
   linkedinUrl?: string;
+  universityIndex: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -12,9 +17,8 @@ export type VolunteerProfileDetails = {
 export type VolunteerProfileSummary = {
   userId: string;
   name?: string;
-  googleEmail: string;
+  googleEmail?: string;
   uomEmail?: string;
-  uomVerified: boolean;
   sbRoles: string[];
   eventRoles: Array<{
     eventId: string;
@@ -23,4 +27,5 @@ export type VolunteerProfileSummary = {
     committeeName?: string;
   }>;
   details: VolunteerProfileDetails | null;
+  isPrivateView: boolean;
 };

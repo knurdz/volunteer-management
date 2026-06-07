@@ -1,18 +1,24 @@
 import "server-only";
 
-import { ID, Query } from "node-appwrite";
+import { Query, type Models } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { writeAuditLog } from "@/server/audit";
-import { isAppwriteNotFound } from "@/server/errors";
+import { isAppwriteConflict, isAppwriteNotFound } from "@/server/errors";
 import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getProfile } from "@/features/access-control/server/profiles";
 import {
   assertCanRequestRecommendation,
   assertCanReportRecommendation,
   assertCanRespondToRecommendation,
+  shouldRecoverAcceptedRequest,
 } from "@/features/recommendations/lib/rules";
+import {
+  recommendationRequestKey,
+  recommendationRequestRowId,
+  recommendationRowId,
+} from "@/features/recommendations/lib/ids";
 import type { Profile } from "@/features/access-control/types";
 import type { SessionUser } from "@/features/access-control/types";
 import type {
@@ -22,16 +28,18 @@ import type {
   RecommendationRequestWithProfiles,
   RecommendationRequestStatus,
   RecommendationVisibilityStatus,
+  RecommendationWithProfiles,
   RecommendationWithRespondent,
 } from "@/features/recommendations/types";
 
-type AppRow = Record<string, unknown> & { $id: string };
+type AppRow = Models.Row & Record<string, unknown>;
 
 function toRecommendationRequest(row: AppRow): RecommendationRequest {
   return {
     $id: row.$id,
     createdAt: String(row.createdAt),
     message: typeof row.message === "string" && row.message ? row.message : undefined,
+    requestKey: typeof row.requestKey === "string" ? row.requestKey : "",
     requesterId: String(row.requesterId),
     respondentId: String(row.respondentId),
     respondedAt:
@@ -46,6 +54,8 @@ function toRecommendation(row: AppRow): Recommendation {
     createdAt: String(row.createdAt),
     hiddenAt: typeof row.hiddenAt === "string" && row.hiddenAt ? row.hiddenAt : undefined,
     hiddenBy: typeof row.hiddenBy === "string" && row.hiddenBy ? row.hiddenBy : undefined,
+    hideReason:
+      typeof row.hideReason === "string" && row.hideReason ? row.hideReason : undefined,
     reportedAt:
       typeof row.reportedAt === "string" && row.reportedAt ? row.reportedAt : undefined,
     reportedBy:
@@ -63,15 +73,16 @@ function toRecommendation(row: AppRow): Recommendation {
 
 function toRecommendationProfileIdentity(
   profile: Profile | null,
+  { includePrivate = false }: { includePrivate?: boolean } = {},
 ): RecommendationProfileIdentity | null {
   if (!profile) {
     return null;
   }
 
   return {
-    googleEmail: profile.googleEmail,
+    googleEmail: includePrivate ? profile.googleEmail : undefined,
     name: profile.name,
-    uomEmail: profile.uomEmail,
+    uomEmail: includePrivate ? profile.uomEmail : undefined,
     userId: profile.authUserId,
   };
 }
@@ -86,9 +97,23 @@ async function withRecommendationProfiles(
 
   return {
     ...request,
-    requester: toRecommendationProfileIdentity(requester),
-    respondent: toRecommendationProfileIdentity(respondent),
+    requester: toRecommendationProfileIdentity(requester, { includePrivate: true }),
+    respondent: toRecommendationProfileIdentity(respondent, { includePrivate: true }),
   };
+}
+
+async function getRecommendationForRequest(requestId: string) {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  const result = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.recommendations,
+    [Query.equal("requestId", requestId), Query.limit(1)],
+    undefined,
+    false,
+  );
+
+  return result.rows[0] ? toRecommendation(result.rows[0] as AppRow) : null;
 }
 
 export async function requestRecommendation({
@@ -113,18 +138,45 @@ export async function requestRecommendation({
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
   const now = new Date().toISOString();
-  const row = await tables.createRow(
+  const requestKey = recommendationRequestKey(user.authUser.id, respondentId);
+  const existingPending = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.recommendationRequests,
-    ID.unique(),
-    {
-      createdAt: now,
-      message: message ?? "",
-      requesterId: user.authUser.id,
-      respondentId,
-      status: "PENDING",
-    },
+    [
+      Query.equal("requestKey", requestKey),
+      Query.equal("status", "PENDING"),
+      Query.limit(1),
+    ],
+    undefined,
+    false,
   );
+
+  if (existingPending.rows.length > 0) {
+    throw new Error("A pending recommendation request already exists for this volunteer.");
+  }
+
+  let row: AppRow;
+  try {
+    row = await tables.createRow<AppRow>(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.recommendationRequests,
+      recommendationRequestRowId(user.authUser.id, respondentId),
+      {
+        createdAt: now,
+        message: message ?? "",
+        requesterId: user.authUser.id,
+        requestKey,
+        respondentId,
+        status: "PENDING",
+      },
+    );
+  } catch (error) {
+    if (isAppwriteConflict(error)) {
+      throw new Error("A recommendation request already exists for this volunteer.");
+    }
+
+    throw error;
+  }
 
   await writeAuditLog({
     action: "RECOMMENDATION_REQUESTED",
@@ -157,6 +209,17 @@ export async function respondToRecommendationRequest({
   );
   const recommendationRequest = toRecommendationRequest(requestRow as AppRow);
 
+  if (
+    recommendationRequest.status === "ACCEPTED" &&
+    response === "ACCEPTED" &&
+    recommendationRequest.respondentId === user.authUser.id
+  ) {
+    return {
+      recommendation: await getRecommendationForRequest(requestId),
+      request: recommendationRequest,
+    };
+  }
+
   assertCanRespondToRecommendation({
     requestRespondentId: recommendationRequest.respondentId,
     requestStatus: recommendationRequest.status,
@@ -168,6 +231,70 @@ export async function respondToRecommendationRequest({
   }
 
   const now = new Date().toISOString();
+  let recommendation: Recommendation | null = null;
+
+  if (response === "ACCEPTED") {
+    recommendation = await getRecommendationForRequest(requestId);
+
+    if (
+      shouldRecoverAcceptedRequest({
+        existingRecommendation: Boolean(recommendation),
+        requestStatus: recommendationRequest.status,
+        response,
+      })
+    ) {
+      const recoveredRequestRow = await tables.updateRow(
+        env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+        APPWRITE_TABLES.recommendationRequests,
+        requestId,
+        {
+          respondedAt: now,
+          status: "ACCEPTED",
+        },
+      );
+
+      await writeAuditLog({
+        action: "RECOMMENDATION_ACCEPTED",
+        actorUserId: user.authUser.id,
+        metadata: { recovered: true, response },
+        targetId: requestId,
+        targetType: "recommendation_request",
+      });
+
+      return {
+        recommendation,
+        request: toRecommendationRequest(recoveredRequestRow as AppRow),
+      };
+    }
+
+    try {
+      if (!recommendation) {
+        const recommendationRow = await tables.createRow<AppRow>(
+          env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+          APPWRITE_TABLES.recommendations,
+          recommendationRowId(requestId),
+          {
+            createdAt: now,
+            requestId,
+            requesterId: recommendationRequest.requesterId,
+            respondentId: recommendationRequest.respondentId,
+            status: "VISIBLE",
+            text: text?.trim() ?? "",
+            updatedAt: now,
+          },
+        );
+
+        recommendation = toRecommendation(recommendationRow);
+      }
+    } catch (error) {
+      if (!isAppwriteConflict(error)) {
+        throw error;
+      }
+
+      recommendation = await getRecommendationForRequest(requestId);
+    }
+  }
+
   const updatedRequestRow = await tables.updateRow(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.recommendationRequests,
@@ -177,26 +304,6 @@ export async function respondToRecommendationRequest({
       status: response,
     },
   );
-  let recommendation: Recommendation | null = null;
-
-  if (response === "ACCEPTED") {
-    const recommendationRow = await tables.createRow(
-      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-      APPWRITE_TABLES.recommendations,
-      ID.unique(),
-      {
-        createdAt: now,
-        requestId,
-        requesterId: recommendationRequest.requesterId,
-        respondentId: recommendationRequest.respondentId,
-        status: "VISIBLE",
-        text: text?.trim() ?? "",
-        updatedAt: now,
-      },
-    );
-
-    recommendation = toRecommendation(recommendationRow as AppRow);
-  }
 
   await writeAuditLog({
     action: response === "ACCEPTED" ? "RECOMMENDATION_ACCEPTED" : "RECOMMENDATION_REJECTED",
@@ -231,7 +338,7 @@ export async function hideRecommendation({
     {
       hiddenAt: now,
       hiddenBy: actorUserId,
-      reportReason: reason ?? "",
+      hideReason: reason ?? "",
       status: "HIDDEN",
       updatedAt: now,
     },
@@ -318,6 +425,34 @@ export async function listVisibleRecommendationsForVolunteer(
       ...recommendation,
       respondent: toRecommendationProfileIdentity(await getProfile(recommendation.respondentId)),
     })),
+  );
+}
+
+export async function listReportedRecommendations(): Promise<RecommendationWithProfiles[]> {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  const result = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.recommendations,
+    [Query.equal("status", "REPORTED"), Query.orderDesc("reportedAt"), Query.limit(100)],
+    undefined,
+    false,
+  );
+  const recommendations = result.rows.map((row) => toRecommendation(row as AppRow));
+
+  return Promise.all(
+    recommendations.map(async (recommendation) => {
+      const [requester, respondent] = await Promise.all([
+        getProfile(recommendation.requesterId),
+        getProfile(recommendation.respondentId),
+      ]);
+
+      return {
+        ...recommendation,
+        requester: toRecommendationProfileIdentity(requester, { includePrivate: true }),
+        respondent: toRecommendationProfileIdentity(respondent, { includePrivate: true }),
+      };
+    }),
   );
 }
 

@@ -3,7 +3,13 @@ import {
   assertCanReportRecommendation,
   assertCanRequestRecommendation,
   assertCanRespondToRecommendation,
+  shouldRecoverAcceptedRequest,
 } from "../src/features/recommendations/lib/rules";
+import {
+  recommendationRequestKey,
+  recommendationRequestRowId,
+  recommendationRowId,
+} from "../src/features/recommendations/lib/ids";
 
 describe("recommendation rules", () => {
   it("blocks self recommendations", () => {
@@ -90,5 +96,43 @@ describe("recommendation rules", () => {
         status: "HIDDEN",
       }),
     ).toThrow("visible recommendations");
+  });
+
+  it("uses deterministic ids to prevent duplicate request and recommendation rows", () => {
+    expect(recommendationRequestKey("user-1", "user-2")).toBe(
+      recommendationRequestKey("user-1", "user-2"),
+    );
+    expect(recommendationRequestRowId("user-1", "user-2")).toBe(
+      recommendationRequestRowId("user-1", "user-2"),
+    );
+    expect(recommendationRequestRowId("user-1", "user-2")).not.toBe(
+      recommendationRequestRowId("user-2", "user-1"),
+    );
+    expect(recommendationRowId("request-1")).toBe(recommendationRowId("request-1"));
+    expect(recommendationRowId("request-1")).not.toBe(recommendationRowId("request-2"));
+  });
+
+  it("recovers a pending request when its recommendation already exists", () => {
+    expect(
+      shouldRecoverAcceptedRequest({
+        existingRecommendation: true,
+        requestStatus: "PENDING",
+        response: "ACCEPTED",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRecoverAcceptedRequest({
+        existingRecommendation: false,
+        requestStatus: "PENDING",
+        response: "ACCEPTED",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRecoverAcceptedRequest({
+        existingRecommendation: true,
+        requestStatus: "PENDING",
+        response: "REJECTED",
+      }),
+    ).toBe(false);
   });
 });

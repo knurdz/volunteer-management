@@ -178,5 +178,5 @@ function displayName(
     return "Unknown volunteer";
   }
 
-  return profile.name || profile.uomEmail || profile.googleEmail;
+  return profile.name || profile.uomEmail || profile.googleEmail || profile.userId;
 }
