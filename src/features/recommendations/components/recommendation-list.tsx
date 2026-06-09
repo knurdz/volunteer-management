@@ -14,7 +14,8 @@ export function RecommendationList({
 }) {
   const [message, setMessage] = useState("");
   const [pendingReport, setPendingReport] = useState<string | null>(null);
-  const [recommendations, setRecommendations] = useState(initialRecommendations);
+  const [reportedIds, setReportedIds] = useState<string[]>([]);
+  const [recommendations] = useState(initialRecommendations);
 
   async function reportRecommendation(recommendationId: string) {
     const reason = window.prompt("Why should this recommendation be reviewed?");
@@ -38,8 +39,8 @@ export function RecommendationList({
         throw new Error(result.error ?? "Recommendation report failed.");
       }
 
-      setRecommendations((current) =>
-        current.filter((recommendation) => recommendation.$id !== recommendationId),
+      setReportedIds((current) =>
+        current.includes(recommendationId) ? current : [...current, recommendationId],
       );
       setMessage("Recommendation reported for admin review.");
     } catch (error) {
@@ -60,15 +61,19 @@ export function RecommendationList({
                 From {displayRespondent(recommendation)}
               </p>
               {canReport ? (
-                <Button
-                  disabled={pendingReport === recommendation.$id}
-                  onClick={() => reportRecommendation(recommendation.$id)}
-                  type="button"
-                  variant="ghost"
-                >
-                  <Flag className="size-4" aria-hidden="true" />
-                  Report
-                </Button>
+                reportedIds.includes(recommendation.$id) ? (
+                  <p className="text-xs text-text-muted">Reported for admin review</p>
+                ) : (
+                  <Button
+                    disabled={pendingReport === recommendation.$id}
+                    onClick={() => reportRecommendation(recommendation.$id)}
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Flag className="size-4" aria-hidden="true" />
+                    Report
+                  </Button>
+                )
               ) : null}
             </div>
           </div>

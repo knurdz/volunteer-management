@@ -52,7 +52,9 @@ export default async function VolunteerProfilePage({
     Boolean(user?.profile.uomVerified) && user?.authUser.id !== profile.userId;
   const canReportRecommendations = Boolean(user?.profile.uomVerified);
   const profileDisplayName = profile.name || "Verified volunteer";
-  const recommendations = await listVisibleRecommendationsForVolunteer(userId);
+  const recommendations = profile.isPrivateView
+    ? await listVisibleRecommendationsForVolunteer(userId)
+    : [];
   const content = (
     <VolunteerProfileContent
       canReportRecommendations={canReportRecommendations}
@@ -113,11 +115,19 @@ function VolunteerProfileContent({
                   <InfoRow label="UoM email" value={profile.uomEmail ?? "Hidden"} />
                 </>
               ) : null}
-              <InfoRow label="University index" value={profile.details?.universityIndex ?? "Not provided"} />
-              <InfoRow label="Faculty" value={profile.details?.faculty ?? "Not provided"} />
-              <InfoRow label="Department" value={profile.details?.department ?? "Not provided"} />
-              <InfoRow label="Batch / Year" value={profile.details?.batchYear ?? "Not provided"} />
-              <InfoRow label="IEEE Membership" value={profile.details?.ieeeMembership ?? "Not provided"} />
+              {profile.isPrivateView ? (
+                <>
+                  <InfoRow label="University index" value={profile.details?.universityIndex ?? "Not provided"} />
+                  <InfoRow label="Faculty" value={profile.details?.faculty ?? "Not provided"} />
+                  <InfoRow label="Department" value={profile.details?.department ?? "Not provided"} />
+                  <InfoRow label="Batch / Year" value={profile.details?.batchYear ?? "Not provided"} />
+                  <InfoRow label="IEEE Membership" value={profile.details?.ieeeMembership ?? "Not provided"} />
+                </>
+              ) : (
+                <p className="text-sm text-text-secondary">
+                  Academic identifiers are visible only to the profile owner and admins.
+                </p>
+              )}
               <Badge tone="success">Active verified volunteer</Badge>
             </CardContent>
           </Card>
@@ -135,33 +145,35 @@ function VolunteerProfileContent({
           </Card>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Roles</CardTitle>
-            <CardDescription>Student Branch and event responsibilities.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {profile.sbRoles.length > 0 ? (
-                profile.sbRoles.map((role) => <Badge key={role}>{role}</Badge>)
-              ) : (
-                <Badge>No SB roles</Badge>
-              )}
-            </div>
-            <div className="grid gap-2 text-sm text-text-secondary">
-              {profile.eventRoles.length > 0 ? (
-                profile.eventRoles.map((role) => (
-                  <div className="rounded-md border border-border p-3" key={`${role.eventId}-${role.role}`}>
-                    <p className="font-medium text-text-primary">{role.eventTitle}</p>
-                    <p>{[role.role, role.committeeName].filter(Boolean).join(" · ")}</p>
-                  </div>
-                ))
-              ) : (
-                <p>No event responsibilities assigned.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {profile.isPrivateView ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Roles</CardTitle>
+              <CardDescription>Student Branch and event responsibilities.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {profile.sbRoles.length > 0 ? (
+                  profile.sbRoles.map((role) => <Badge key={role}>{role}</Badge>)
+                ) : (
+                  <Badge>No SB roles</Badge>
+                )}
+              </div>
+              <div className="grid gap-2 text-sm text-text-secondary">
+                {profile.eventRoles.length > 0 ? (
+                  profile.eventRoles.map((role) => (
+                    <div className="rounded-md border border-border p-3" key={`${role.eventId}-${role.role}`}>
+                      <p className="font-medium text-text-primary">{role.eventTitle}</p>
+                      <p>{[role.role, role.committeeName].filter(Boolean).join(" · ")}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p>No event responsibilities assigned.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -182,10 +194,16 @@ function VolunteerProfileContent({
                 Verify your UoM email before requesting or reporting recommendations.
               </p>
             ) : null}
-            <RecommendationList
-              canReport={canReportRecommendations}
-              initialRecommendations={recommendations}
-            />
+            {profile.isPrivateView ? (
+              <RecommendationList
+                canReport={canReportRecommendations}
+                initialRecommendations={recommendations}
+              />
+            ) : (
+              <p className="text-sm text-text-secondary">
+                Recommendations are visible only to the profile owner and admins.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

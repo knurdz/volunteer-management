@@ -3,11 +3,13 @@ import {
   assertCanReportRecommendation,
   assertCanRequestRecommendation,
   assertCanRespondToRecommendation,
+  shouldBlockDuplicateRecommendationRequest,
+  shouldRepairAcceptedRequest,
   shouldRecoverAcceptedRequest,
+  statusAfterReport,
 } from "../src/features/recommendations/lib/rules";
 import {
   recommendationRequestKey,
-  recommendationRequestRowId,
   recommendationRowId,
 } from "../src/features/recommendations/lib/ids";
 
@@ -98,15 +100,12 @@ describe("recommendation rules", () => {
     ).toThrow("visible recommendations");
   });
 
-  it("uses deterministic ids to prevent duplicate request and recommendation rows", () => {
+  it("uses request keys for pending duplicate checks and deterministic recommendation ids", () => {
     expect(recommendationRequestKey("user-1", "user-2")).toBe(
       recommendationRequestKey("user-1", "user-2"),
     );
-    expect(recommendationRequestRowId("user-1", "user-2")).toBe(
-      recommendationRequestRowId("user-1", "user-2"),
-    );
-    expect(recommendationRequestRowId("user-1", "user-2")).not.toBe(
-      recommendationRequestRowId("user-2", "user-1"),
+    expect(recommendationRequestKey("user-1", "user-2")).not.toBe(
+      recommendationRequestKey("user-2", "user-1"),
     );
     expect(recommendationRowId("request-1")).toBe(recommendationRowId("request-1"));
     expect(recommendationRowId("request-1")).not.toBe(recommendationRowId("request-2"));
@@ -134,5 +133,46 @@ describe("recommendation rules", () => {
         response: "REJECTED",
       }),
     ).toBe(false);
+  });
+
+  it("repairs an accepted request when its recommendation is missing", () => {
+    expect(
+      shouldRepairAcceptedRequest({
+        existingRecommendation: false,
+        requestStatus: "ACCEPTED",
+        response: "ACCEPTED",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRepairAcceptedRequest({
+        existingRecommendation: true,
+        requestStatus: "ACCEPTED",
+        response: "ACCEPTED",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps reported recommendations visible until admin hides them", () => {
+    expect(statusAfterReport("VISIBLE")).toBe("VISIBLE");
+    expect(() => statusAfterReport("HIDDEN")).toThrow("visible recommendations");
+  });
+
+  it("blocks duplicate requests only while one is still pending", () => {
+    expect(
+      shouldBlockDuplicateRecommendationRequest([{ status: "PENDING" }]),
+    ).toBe(true);
+    expect(
+      shouldBlockDuplicateRecommendationRequest([{ status: "REJECTED" }]),
+    ).toBe(false);
+    expect(
+      shouldBlockDuplicateRecommendationRequest([{ status: "ACCEPTED" }]),
+    ).toBe(false);
+    expect(shouldBlockDuplicateRecommendationRequest([])).toBe(false);
+  });
+
+  it("allows a new request after a previous one was rejected", () => {
+    const priorRequests = [{ status: "REJECTED" }];
+
+    expect(shouldBlockDuplicateRecommendationRequest(priorRequests)).toBe(false);
   });
 });

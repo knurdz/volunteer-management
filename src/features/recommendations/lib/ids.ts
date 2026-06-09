@@ -4,10 +4,6 @@ export function recommendationRequestKey(requesterId: string, respondentId: stri
   return `rk_${createHash("sha1").update(`${requesterId}:${respondentId}`).digest("hex")}`;
 }
 
-export function recommendationRequestRowId(requesterId: string, respondentId: string) {
-  return `rr_${recommendationRequestKey(requesterId, respondentId).slice(3, 33)}`;
-}
-
 export function recommendationRowId(requestId: string) {
   return `rec_${createHash("sha1").update(requestId).digest("hex").slice(0, 29)}`;
 }

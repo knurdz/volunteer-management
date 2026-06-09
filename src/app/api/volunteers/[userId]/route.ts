@@ -17,7 +17,9 @@ export async function GET(
       return jsonError("Volunteer profile was not found.", 404);
     }
 
-    const recommendations = await listVisibleRecommendationsForVolunteer(userId);
+    const recommendations = profile.isPrivateView
+      ? await listVisibleRecommendationsForVolunteer(userId)
+      : [];
 
     return NextResponse.json({ profile, recommendations });
   } catch (error) {

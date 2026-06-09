@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Query, type Models } from "node-appwrite";
+import { ID, Query, type Models } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
@@ -12,11 +12,13 @@ import {
   assertCanRequestRecommendation,
   assertCanReportRecommendation,
   assertCanRespondToRecommendation,
+  shouldBlockDuplicateRecommendationRequest,
+  shouldRepairAcceptedRequest,
   shouldRecoverAcceptedRequest,
+  statusAfterReport,
 } from "@/features/recommendations/lib/rules";
 import {
   recommendationRequestKey,
-  recommendationRequestRowId,
   recommendationRowId,
 } from "@/features/recommendations/lib/ids";
 import type { Profile } from "@/features/access-control/types";
@@ -33,6 +35,14 @@ import type {
 } from "@/features/recommendations/types";
 
 type AppRow = Models.Row & Record<string, unknown>;
+
+async function safeRecommendationAuditLog(input: Parameters<typeof writeAuditLog>[0]) {
+  try {
+    await writeAuditLog(input);
+  } catch (error) {
+    console.error("Recommendation audit log failed", error);
+  }
+}
 
 function toRecommendationRequest(row: AppRow): RecommendationRequest {
   return {
@@ -116,6 +126,38 @@ async function getRecommendationForRequest(requestId: string) {
   return result.rows[0] ? toRecommendation(result.rows[0] as AppRow) : null;
 }
 
+async function createRecommendationForRequest({
+  now,
+  recommendationRequest,
+  requestId,
+  tables,
+  text,
+}: {
+  now: string;
+  recommendationRequest: RecommendationRequest;
+  requestId: string;
+  tables: ReturnType<typeof getAppwriteAdminServices>["tables"];
+  text: string;
+}) {
+  const env = getServerEnv();
+  const recommendationRow = await tables.createRow<AppRow>(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.recommendations,
+    recommendationRowId(requestId),
+    {
+      createdAt: now,
+      requestId,
+      requesterId: recommendationRequest.requesterId,
+      respondentId: recommendationRequest.respondentId,
+      status: "VISIBLE",
+      text,
+      updatedAt: now,
+    },
+  );
+
+  return toRecommendation(recommendationRow);
+}
+
 export async function requestRecommendation({
   message,
   respondentId,
@@ -139,19 +181,37 @@ export async function requestRecommendation({
   const { tables } = getAppwriteAdminServices();
   const now = new Date().toISOString();
   const requestKey = recommendationRequestKey(user.authUser.id, respondentId);
-  const existingPending = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.recommendationRequests,
-    [
-      Query.equal("requestKey", requestKey),
-      Query.equal("status", "PENDING"),
-      Query.limit(1),
-    ],
-    undefined,
-    false,
-  );
+  const [existingPending, legacyPending] = await Promise.all([
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.recommendationRequests,
+      [
+        Query.equal("requestKey", requestKey),
+        Query.equal("status", "PENDING"),
+        Query.limit(1),
+      ],
+      undefined,
+      false,
+    ),
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.recommendationRequests,
+      [
+        Query.equal("requesterId", user.authUser.id),
+        Query.equal("respondentId", respondentId),
+        Query.equal("status", "PENDING"),
+        Query.limit(1),
+      ],
+      undefined,
+      false,
+    ),
+  ]);
 
-  if (existingPending.rows.length > 0) {
+  const pendingRequests = [...existingPending.rows, ...legacyPending.rows].map((row) => ({
+    status: typeof row.status === "string" ? row.status : "",
+  }));
+
+  if (shouldBlockDuplicateRecommendationRequest(pendingRequests)) {
     throw new Error("A pending recommendation request already exists for this volunteer.");
   }
 
@@ -160,7 +220,7 @@ export async function requestRecommendation({
     row = await tables.createRow<AppRow>(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
       APPWRITE_TABLES.recommendationRequests,
-      recommendationRequestRowId(user.authUser.id, respondentId),
+      ID.unique(),
       {
         createdAt: now,
         message: message ?? "",
@@ -178,7 +238,7 @@ export async function requestRecommendation({
     throw error;
   }
 
-  await writeAuditLog({
+  await safeRecommendationAuditLog({
     action: "RECOMMENDATION_REQUESTED",
     actorUserId: user.authUser.id,
     metadata: { respondentId },
@@ -214,8 +274,47 @@ export async function respondToRecommendationRequest({
     response === "ACCEPTED" &&
     recommendationRequest.respondentId === user.authUser.id
   ) {
+    const existingRecommendation = await getRecommendationForRequest(requestId);
+
+    if (existingRecommendation) {
+      return {
+        recommendation: existingRecommendation,
+        request: recommendationRequest,
+      };
+    }
+
+    if (
+      !shouldRepairAcceptedRequest({
+        existingRecommendation: false,
+        requestStatus: recommendationRequest.status,
+        response,
+      })
+    ) {
+      throw new Error("Recommendation request has already been answered.");
+    }
+
+    if (!text?.trim()) {
+      throw new Error("Recommendation text is required to repair an accepted request.");
+    }
+
+    const now = new Date().toISOString();
+    const recommendation = await createRecommendationForRequest({
+      now,
+      recommendationRequest,
+      requestId,
+      tables,
+      text: text.trim(),
+    });
+    await safeRecommendationAuditLog({
+      action: "RECOMMENDATION_ACCEPTED",
+      actorUserId: user.authUser.id,
+      metadata: { repairedAcceptedRequest: true, response },
+      targetId: requestId,
+      targetType: "recommendation_request",
+    });
+
     return {
-      recommendation: await getRecommendationForRequest(requestId),
+      recommendation,
       request: recommendationRequest,
     };
   }
@@ -253,7 +352,7 @@ export async function respondToRecommendationRequest({
         },
       );
 
-      await writeAuditLog({
+      await safeRecommendationAuditLog({
         action: "RECOMMENDATION_ACCEPTED",
         actorUserId: user.authUser.id,
         metadata: { recovered: true, response },
@@ -269,22 +368,13 @@ export async function respondToRecommendationRequest({
 
     try {
       if (!recommendation) {
-        const recommendationRow = await tables.createRow<AppRow>(
-          env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-          APPWRITE_TABLES.recommendations,
-          recommendationRowId(requestId),
-          {
-            createdAt: now,
-            requestId,
-            requesterId: recommendationRequest.requesterId,
-            respondentId: recommendationRequest.respondentId,
-            status: "VISIBLE",
-            text: text?.trim() ?? "",
-            updatedAt: now,
-          },
-        );
-
-        recommendation = toRecommendation(recommendationRow);
+        recommendation = await createRecommendationForRequest({
+          now,
+          recommendationRequest,
+          requestId,
+          tables,
+          text: text?.trim() ?? "",
+        });
       }
     } catch (error) {
       if (!isAppwriteConflict(error)) {
@@ -305,7 +395,7 @@ export async function respondToRecommendationRequest({
     },
   );
 
-  await writeAuditLog({
+  await safeRecommendationAuditLog({
     action: response === "ACCEPTED" ? "RECOMMENDATION_ACCEPTED" : "RECOMMENDATION_REJECTED",
     actorUserId: user.authUser.id,
     metadata: { response },
@@ -344,7 +434,7 @@ export async function hideRecommendation({
     },
   );
 
-  await writeAuditLog({
+  await safeRecommendationAuditLog({
     action: "RECOMMENDATION_HIDDEN",
     actorUserId,
     metadata: { reason },
@@ -384,15 +474,49 @@ export async function reportRecommendation({
       reportReason: reason ?? "",
       reportedAt: now,
       reportedBy: actorUserId,
-      status: "REPORTED",
+      status: statusAfterReport(existingRecommendation.status),
       updatedAt: now,
     },
   );
 
-  await writeAuditLog({
+  await safeRecommendationAuditLog({
     action: "RECOMMENDATION_REPORTED",
     actorUserId,
     metadata: { reason },
+    targetId: recommendationId,
+    targetType: "recommendation",
+  });
+
+  return toRecommendation(row as AppRow);
+}
+
+export async function dismissRecommendationReport({
+  actorUserId,
+  recommendationId,
+}: {
+  actorUserId: string;
+  recommendationId: string;
+}) {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  const now = new Date().toISOString();
+  const row = await tables.updateRow(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.recommendations,
+    recommendationId,
+    {
+      reportReason: "",
+      reportedAt: null,
+      reportedBy: "",
+      status: "VISIBLE",
+      updatedAt: now,
+    },
+  );
+
+  await safeRecommendationAuditLog({
+    action: "RECOMMENDATION_REPORT_DISMISSED",
+    actorUserId,
+    metadata: {},
     targetId: recommendationId,
     targetType: "recommendation",
   });
@@ -431,14 +555,25 @@ export async function listVisibleRecommendationsForVolunteer(
 export async function listReportedRecommendations(): Promise<RecommendationWithProfiles[]> {
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
-  const result = await tables.listRows(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.recommendations,
-    [Query.equal("status", "REPORTED"), Query.orderDesc("reportedAt"), Query.limit(100)],
-    undefined,
-    false,
-  );
-  const recommendations = result.rows.map((row) => toRecommendation(row as AppRow));
+  const [visibleResult, legacyReportedResult] = await Promise.all([
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.recommendations,
+      [Query.equal("status", "VISIBLE"), Query.orderDesc("updatedAt"), Query.limit(500)],
+      undefined,
+      false,
+    ),
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.recommendations,
+      [Query.equal("status", "REPORTED"), Query.orderDesc("updatedAt"), Query.limit(500)],
+      undefined,
+      false,
+    ),
+  ]);
+  const recommendations = [...visibleResult.rows, ...legacyReportedResult.rows]
+    .map((row) => toRecommendation(row as AppRow))
+    .filter((recommendation) => Boolean(recommendation.reportedAt));
 
   return Promise.all(
     recommendations.map(async (recommendation) => {

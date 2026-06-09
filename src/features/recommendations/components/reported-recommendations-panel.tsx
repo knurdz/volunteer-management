@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { EyeOff } from "lucide-react";
+import { CheckCircle2, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { RecommendationWithProfiles } from "@/features/recommendations/types";
@@ -46,6 +46,33 @@ export function ReportedRecommendationsPanel({
     }
   }
 
+  async function dismissReport(recommendationId: string) {
+    setPendingId(recommendationId);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/recommendations/dismiss-report", {
+        body: JSON.stringify({ recommendationId }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "Report dismiss failed.");
+      }
+
+      setRecommendations((current) =>
+        current.filter((recommendation) => recommendation.$id !== recommendationId),
+      );
+      setMessage("Report dismissed. Recommendation remains visible.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Report dismiss failed.");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {recommendations.length > 0 ? (
@@ -83,7 +110,16 @@ export function ReportedRecommendationsPanel({
                 value={hideReasons[recommendation.$id] ?? ""}
               />
             </label>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                disabled={pendingId === recommendation.$id}
+                onClick={() => dismissReport(recommendation.$id)}
+                type="button"
+                variant="secondary"
+              >
+                <CheckCircle2 className="size-4" aria-hidden="true" />
+                Dismiss Report
+              </Button>
               <Button
                 disabled={pendingId === recommendation.$id}
                 onClick={() => hideRecommendation(recommendation.$id)}

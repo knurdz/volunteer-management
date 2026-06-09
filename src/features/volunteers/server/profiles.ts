@@ -10,6 +10,7 @@ import { getProfile } from "@/features/access-control/server/profiles";
 import {
   canShowVolunteerProfile,
   canViewPrivateVolunteerProfile,
+  toPublicVolunteerProfileDetails,
 } from "@/features/volunteers/lib/profile-visibility";
 import type { SessionUser } from "@/features/access-control/types";
 import type {
@@ -19,6 +20,14 @@ import type {
 import type { VolunteerProfileDetailsInput } from "@/features/volunteers/lib/profile-details";
 
 type AppRow = Record<string, unknown> & { $id: string };
+
+async function safeVolunteerAuditLog(input: Parameters<typeof writeAuditLog>[0]) {
+  try {
+    await writeAuditLog(input);
+  } catch (error) {
+    console.error("Volunteer audit log failed", error);
+  }
+}
 
 function toVolunteerProfileDetails(row: AppRow): VolunteerProfileDetails {
   return {
@@ -102,7 +111,7 @@ export async function upsertMyVolunteerProfileDetails({
         },
       );
 
-  await writeAuditLog({
+  await safeVolunteerAuditLog({
     action: "VOLUNTEER_PROFILE_UPDATED",
     actorUserId: user.authUser.id,
     metadata: { changedFields: Object.keys(details) },
@@ -138,17 +147,19 @@ export async function getVolunteerProfileSummary(
   ]);
 
   return {
-    details,
-    eventRoles: eventRoles.map((role) => ({
-      committeeName: role.committeeName,
-      eventId: role.eventId,
-      eventTitle: role.eventTitle,
-      role: role.role,
-    })),
+    details: isPrivateView ? details : toPublicVolunteerProfileDetails(details),
+    eventRoles: isPrivateView
+      ? eventRoles.map((role) => ({
+          committeeName: role.committeeName,
+          eventId: role.eventId,
+          eventTitle: role.eventTitle,
+          role: role.role,
+        }))
+      : [],
     googleEmail: isPrivateView ? profile.googleEmail : undefined,
     isPrivateView,
     name: profile.name,
-    sbRoles,
+    sbRoles: isPrivateView ? sbRoles : [],
     uomEmail: isPrivateView ? profile.uomEmail : undefined,
     userId,
   };

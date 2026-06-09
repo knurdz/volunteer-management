@@ -67,3 +67,29 @@ export function shouldRecoverAcceptedRequest({
 }) {
   return existingRecommendation && requestStatus === "PENDING" && response === "ACCEPTED";
 }
+
+export function shouldRepairAcceptedRequest({
+  existingRecommendation,
+  requestStatus,
+  response,
+}: {
+  existingRecommendation: boolean;
+  requestStatus: string;
+  response: "ACCEPTED" | "REJECTED";
+}) {
+  return !existingRecommendation && requestStatus === "ACCEPTED" && response === "ACCEPTED";
+}
+
+export function shouldBlockDuplicateRecommendationRequest(
+  existingRequests: Array<{ status: string }>,
+) {
+  return existingRequests.some((request) => request.status === "PENDING");
+}
+
+export function statusAfterReport(status: string) {
+  if (status !== "VISIBLE") {
+    throw new Error("Only visible recommendations can be reported.");
+  }
+
+  return "VISIBLE";
+}

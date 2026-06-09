@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -62,6 +63,10 @@ const eventRoleElements = [
   "Committee Member",
 ];
 const legacyEventRoleElements = ["Lead", "OC Member"];
+
+function recommendationRequestKey(requesterId, respondentId) {
+  return `rk_${createHash("sha1").update(`${requesterId}:${respondentId}`).digest("hex")}`;
+}
 
 const tableDefinitions = [
   {
@@ -374,7 +379,52 @@ async function main() {
     }
   }
 
+  await migrateRecommendationRequestKeys();
   await migrateEventRoleNames();
+}
+
+async function migrateRecommendationRequestKeys() {
+  let cursor;
+  let migrated = 0;
+
+  for (let page = 0; page < 20; page += 1) {
+    const queries = [Query.limit(500)];
+
+    if (cursor) {
+      queries.push(Query.cursorAfter(cursor));
+    }
+
+    const result = await tables.listRows(
+      databaseId,
+      "recommendation_requests",
+      queries,
+      undefined,
+      false,
+    );
+
+    if (result.rows.length === 0) {
+      break;
+    }
+
+    for (const row of result.rows) {
+      cursor = row.$id;
+
+      if (row.requestKey || !row.requesterId || !row.respondentId) {
+        continue;
+      }
+
+      await tables.updateRow(databaseId, "recommendation_requests", row.$id, {
+        requestKey: recommendationRequestKey(String(row.requesterId), String(row.respondentId)),
+      });
+      migrated += 1;
+    }
+
+    if (result.rows.length < 500) {
+      break;
+    }
+  }
+
+  console.log(`migrated recommendation request keys: ${migrated}`);
 }
 
 async function migrateEventRoleNames() {
