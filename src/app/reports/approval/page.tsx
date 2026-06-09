@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { ConclusionApprovalPanel } from "@/features/reports/components/conclusion-approval-panel";
 import { ReportsNav } from "@/features/reports/components/reports-nav";
+import { canAccessConclusionsTab } from "@/features/reports/lib/access";
 import { getReportsPageData } from "@/features/reports/server/page-data";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 
@@ -36,7 +37,10 @@ export default async function ApprovalPage() {
         description="Review submitted conclusion reports. PDF export is enabled only after approval."
       />
 
-      <ReportsNav isAdmin={user.isAdmin} />
+      <ReportsNav
+        canAccessConclusions={canAccessConclusionsTab(user)}
+        isAdmin={user.isAdmin}
+      />
 
       <Card>
         <CardHeader>

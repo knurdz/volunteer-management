@@ -12,22 +12,49 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const baseItems = [
-  { href: "/reports", icon: LayoutGrid, label: "Overview" },
-  { href: "/reports/conclusions", icon: ClipboardList, label: "Conclusions" },
-  { href: "/reports/recognition", icon: Award, label: "Recognition" },
-  { href: "/reports/volunteers", icon: UsersRound, label: "Volunteer PDFs" },
-] as const;
+const overviewItem = {
+  href: "/reports",
+  icon: LayoutGrid,
+  label: "Overview",
+} as const;
 
-const adminItem = {
+const recognitionItem = {
+  href: "/reports/recognition",
+  icon: Award,
+  label: "Recognition",
+} as const;
+
+const volunteersItem = {
+  href: "/reports/volunteers",
+  icon: UsersRound,
+  label: "Volunteer PDFs",
+} as const;
+
+const conclusionsItem = {
+  href: "/reports/conclusions",
+  icon: ClipboardList,
+  label: "Conclusions",
+} as const;
+
+const adminApprovalItem = {
   href: "/reports/approval",
   icon: FileText,
   label: "Admin approval",
 } as const;
 
-export function ReportsNav({ isAdmin }: { isAdmin: boolean }) {
+type ReportsNavProps = {
+  canAccessConclusions: boolean;
+  isAdmin: boolean;
+};
+
+export function ReportsNav({ canAccessConclusions, isAdmin }: ReportsNavProps) {
   const pathname = usePathname();
-  const items = isAdmin ? [...baseItems, adminItem] : baseItems;
+
+  const items = isAdmin
+    ? [overviewItem, recognitionItem, volunteersItem, conclusionsItem, adminApprovalItem]
+    : canAccessConclusions
+      ? [recognitionItem, conclusionsItem]
+      : [recognitionItem];
 
   return (
     <nav

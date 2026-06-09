@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { reportStatusTone } from "@/features/reports/lib/approval-rules";
 import { ReportsNav } from "@/features/reports/components/reports-nav";
+import { canAccessConclusionsTab } from "@/features/reports/lib/access";
 import { getReportsPageData } from "@/features/reports/server/page-data";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 
@@ -31,6 +32,7 @@ export default async function ReportsOverviewPage() {
     return null;
   }
 
+  const canAccessConclusions = canAccessConclusionsTab(user);
   const data = await getReportsPageData(user);
   const pendingApproval = data.reports.filter((report) => report.status === "SUBMITTED").length;
   const approvedReports = data.reports.filter((report) => report.status === "APPROVED").length;
@@ -39,58 +41,68 @@ export default async function ReportsOverviewPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Reporting"
-        title="Reports & Exports"
-        description="Event summaries, conclusion reports, recognition, and volunteer profile PDFs from Appwrite data."
+        title={user.isAdmin ? "Reports & Exports" : "Reports"}
+        description={
+          user.isAdmin
+            ? "Event summaries, conclusion reports, recognition, and volunteer profile PDF generation."
+            : "Recognition and conclusion reports."
+        }
       />
 
-      <ReportsNav isAdmin={user.isAdmin} />
+      <ReportsNav canAccessConclusions={canAccessConclusions} isAdmin={user.isAdmin} />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Event summaries" value={String(data.summaries.length)} />
-        <StatCard label="Conclusion reports" value={String(data.reports.length)} />
-        <StatCard label="Awaiting approval" value={String(pendingApproval)} />
-        <StatCard label="Volunteer profiles" value={String(data.volunteers.length)} />
-      </section>
+      {user.isAdmin ? (
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Event summaries" value={String(data.summaries.length)} />
+          <StatCard label="Conclusion reports" value={String(data.reports.length)} />
+          <StatCard label="Awaiting approval" value={String(pendingApproval)} />
+          <StatCard label="Volunteer profiles" value={String(data.volunteers.length)} />
+        </section>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalendarDays className="size-4 text-primary" aria-hidden="true" />
-              Event summaries
-            </CardTitle>
-            <CardDescription>Events derived from active role assignments and report status.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.summaries.map((summary) => (
-              <div
-                className="rounded-md border border-border bg-surface-subtle px-4 py-3"
-                key={summary.eventId}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium text-text-primary">{summary.eventTitle}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone="primary">{summary.status}</Badge>
-                    {summary.reportStatus ? (
-                      <Badge tone={reportStatusTone(summary.reportStatus)}>
-                        {summary.reportStatus}
-                      </Badge>
-                    ) : (
-                      <Badge>No report</Badge>
-                    )}
+        {user.isAdmin ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarDays className="size-4 text-primary" aria-hidden="true" />
+                Event summaries
+              </CardTitle>
+              <CardDescription>
+                Events derived from active role assignments and report status.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {data.summaries.map((summary) => (
+                <div
+                  className="rounded-md border border-border bg-surface-subtle px-4 py-3"
+                  key={summary.eventId}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-medium text-text-primary">{summary.eventTitle}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge tone="primary">{summary.status}</Badge>
+                      {summary.reportStatus ? (
+                        <Badge tone={reportStatusTone(summary.reportStatus)}>
+                          {summary.reportStatus}
+                        </Badge>
+                      ) : (
+                        <Badge>No report</Badge>
+                      )}
+                    </div>
                   </div>
+                  <p className="mt-2 text-sm text-text-secondary">{summary.summary}</p>
                 </div>
-                <p className="mt-2 text-sm text-text-secondary">{summary.summary}</p>
-              </div>
-            ))}
-            <Link className={buttonClasses()} href="/reports/conclusions">
-              Manage conclusion reports
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Link>
-          </CardContent>
-        </Card>
+              ))}
+              <Link className={buttonClasses()} href="/reports/conclusions">
+                Manage conclusion reports
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            </CardContent>
+          </Card>
+        ) : null}
 
-        <Card>
+        <Card className={user.isAdmin ? undefined : "lg:col-span-2"}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Trophy className="size-4 text-primary" aria-hidden="true" />
@@ -130,28 +142,34 @@ export default async function ReportsOverviewPage() {
         </Card>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <QuickLinkCard
-          description="Create and submit structured text conclusion reports."
-          href="/reports/conclusions"
-          icon={ClipboardList}
-          title="Conclusion reports"
-        />
-        {user.isAdmin ? (
-          <QuickLinkCard
-            description={`Review submitted reports. ${pendingApproval} awaiting approval, ${approvedReports} approved.`}
-            href="/reports/approval"
-            icon={FileText}
-            title="Admin approval"
-          />
-        ) : null}
-        <QuickLinkCard
-          description="Export volunteer identity, roles, and participation."
-          href="/reports/volunteers"
-          icon={UsersRound}
-          title="Volunteer PDFs"
-        />
-      </section>
+      {user.isAdmin || canAccessConclusions ? (
+        <section className="grid gap-4 md:grid-cols-3">
+          {canAccessConclusions ? (
+            <QuickLinkCard
+              description="Create and submit structured text conclusion reports."
+              href="/reports/conclusions"
+              icon={ClipboardList}
+              title="Conclusion reports"
+            />
+          ) : null}
+          {user.isAdmin ? (
+            <QuickLinkCard
+              description={`Review submitted reports. ${pendingApproval} awaiting approval, ${approvedReports} approved.`}
+              href="/reports/approval"
+              icon={FileText}
+              title="Admin approval"
+            />
+          ) : null}
+          {user.isAdmin ? (
+            <QuickLinkCard
+              description="Export volunteer identity, roles, and participation."
+              href="/reports/volunteers"
+              icon={UsersRound}
+              title="Volunteer PDFs"
+            />
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

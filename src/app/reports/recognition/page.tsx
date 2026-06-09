@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ReportsNav } from "@/features/reports/components/reports-nav";
+import { canAccessConclusionsTab } from "@/features/reports/lib/access";
 import { getReportsPageData } from "@/features/reports/server/page-data";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 
@@ -31,7 +32,10 @@ export default async function RecognitionPage() {
         description="Volunteer of the Month and Hall of Fame views will appear once points data is connected."
       />
 
-      <ReportsNav isAdmin={user.isAdmin} />
+      <ReportsNav
+        canAccessConclusions={canAccessConclusionsTab(user)}
+        isAdmin={user.isAdmin}
+      />
 
       <section className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <Card>

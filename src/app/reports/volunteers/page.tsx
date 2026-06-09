@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { UsersRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { ExportActions } from "@/features/reports/components/export-actions";
 import { ReportsNav } from "@/features/reports/components/reports-nav";
+import { canAccessConclusionsTab } from "@/features/reports/lib/access";
 import { getReportsPageData } from "@/features/reports/server/page-data";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 
@@ -22,6 +24,10 @@ export default async function VolunteersPage() {
     return null;
   }
 
+  if (!user.isAdmin) {
+    redirect("/reports/recognition");
+  }
+
   const data = await getReportsPageData(user);
 
   return (
@@ -32,7 +38,10 @@ export default async function VolunteersPage() {
         description="Export volunteer summaries as formal PDFs from Appwrite profile and role data."
       />
 
-      <ReportsNav isAdmin={user.isAdmin} />
+      <ReportsNav
+        canAccessConclusions={canAccessConclusionsTab(user)}
+        isAdmin={user.isAdmin}
+      />
 
       <Card>
         <CardHeader>
