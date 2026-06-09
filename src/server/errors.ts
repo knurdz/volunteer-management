@@ -26,5 +26,24 @@ export function routeErrorStatus(error: unknown, fallback = 400) {
     return 403;
   }
 
+  if (message === "Verified UoM email is required before volunteering.") {
+    return 403;
+  }
+
+  if (message === "Verified UoM email is required before requesting recommendations.") {
+    return 403;
+  }
+
+  if (
+    message === "A pending recommendation request already exists for this volunteer." ||
+    message === "A recommendation request already exists for this volunteer."
+  ) {
+    return 409;
+  }
+
+  if (message === "Requested volunteer profile was not found.") {
+    return 404;
+  }
+
   return fallback;
 }

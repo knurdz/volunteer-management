@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -63,6 +64,10 @@ const eventRoleElements = [
 ];
 const legacyEventRoleElements = ["Lead", "OC Member"];
 
+function recommendationRequestKey(requesterId, respondentId) {
+  return `rk_${createHash("sha1").update(`${requesterId}:${respondentId}`).digest("hex")}`;
+}
+
 const tableDefinitions = [
   {
     id: "profiles",
@@ -80,6 +85,69 @@ const tableDefinitions = [
     indexes: [
       ["profiles_google_email_idx", ["googleEmail"]],
       ["profiles_uom_email_idx", ["uomEmail"]],
+    ],
+  },
+  {
+    id: "profile_details",
+    name: "Profile Details",
+    columns: [
+      ["string", "userId", 64, true],
+      ["string", "universityIndex", 40, false],
+      ["string", "faculty", 120, false],
+      ["string", "department", 120, false],
+      ["string", "batchYear", 40, false],
+      ["string", "ieeeMembership", 120, false],
+      ["string", "headline", 160, false],
+      ["string", "bio", 1200, false],
+      ["string", "skills", 500, false],
+      ["string", "linkedinUrl", 240, false],
+      ["datetime", "createdAt", true],
+      ["datetime", "updatedAt", true],
+    ],
+    indexes: [["profile_details_user_idx", ["userId"]]],
+  },
+  {
+    id: "recommendation_requests",
+    name: "Recommendation Requests",
+    columns: [
+      ["string", "requesterId", 64, true],
+      ["string", "respondentId", 64, true],
+      ["string", "requestKey", 128, false],
+      ["string", "message", 500, false],
+      ["enum", "status", ["PENDING", "ACCEPTED", "REJECTED"], false, "PENDING"],
+      ["datetime", "createdAt", true],
+      ["datetime", "respondedAt", false],
+    ],
+    indexes: [
+      ["rec_req_requester_idx", ["requesterId"]],
+      ["rec_req_respondent_idx", ["respondentId"]],
+      ["rec_req_key_idx", ["requestKey"]],
+      ["rec_req_status_idx", ["status"]],
+    ],
+  },
+  {
+    id: "recommendations",
+    name: "Recommendations",
+    columns: [
+      ["string", "requestId", 64, true],
+      ["string", "requesterId", 64, true],
+      ["string", "respondentId", 64, true],
+      ["string", "text", 2000, true],
+      ["enum", "status", ["VISIBLE", "HIDDEN", "REPORTED"], false, "VISIBLE"],
+      ["datetime", "createdAt", true],
+      ["datetime", "updatedAt", true],
+      ["datetime", "hiddenAt", false],
+      ["string", "hiddenBy", 64, false],
+      ["datetime", "reportedAt", false],
+      ["string", "reportedBy", 64, false],
+      ["string", "reportReason", 500, false],
+      ["string", "hideReason", 500, false],
+    ],
+    indexes: [
+      ["recommendations_request_idx", ["requestId"]],
+      ["recommendations_requester_idx", ["requesterId"]],
+      ["recommendations_respondent_idx", ["respondentId"]],
+      ["recommendations_status_idx", ["status"]],
     ],
   },
   {
@@ -311,7 +379,52 @@ async function main() {
     }
   }
 
+  await migrateRecommendationRequestKeys();
   await migrateEventRoleNames();
+}
+
+async function migrateRecommendationRequestKeys() {
+  let cursor;
+  let migrated = 0;
+
+  for (let page = 0; page < 20; page += 1) {
+    const queries = [Query.limit(500)];
+
+    if (cursor) {
+      queries.push(Query.cursorAfter(cursor));
+    }
+
+    const result = await tables.listRows(
+      databaseId,
+      "recommendation_requests",
+      queries,
+      undefined,
+      false,
+    );
+
+    if (result.rows.length === 0) {
+      break;
+    }
+
+    for (const row of result.rows) {
+      cursor = row.$id;
+
+      if (row.requestKey || !row.requesterId || !row.respondentId) {
+        continue;
+      }
+
+      await tables.updateRow(databaseId, "recommendation_requests", row.$id, {
+        requestKey: recommendationRequestKey(String(row.requesterId), String(row.respondentId)),
+      });
+      migrated += 1;
+    }
+
+    if (result.rows.length < 500) {
+      break;
+    }
+  }
+
+  console.log(`migrated recommendation request keys: ${migrated}`);
 }
 
 async function migrateEventRoleNames() {
