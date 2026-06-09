@@ -22,8 +22,18 @@ export function routeErrorStatus(error: unknown, fallback = 400) {
     return 401;
   }
 
-  if (message === "Admin access required.") {
+  if (
+    message === "Admin access required." ||
+    message === "Required event role is missing." ||
+    message === "You do not have access to this report." ||
+    message === "You do not have access to export this report." ||
+    message === "You do not have access to export this volunteer profile."
+  ) {
     return 403;
+  }
+
+  if (message === "Conclusion report was not found." || message === "Volunteer profile was not found.") {
+    return 404;
   }
 
   return fallback;

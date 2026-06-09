@@ -155,6 +155,45 @@ const tableDefinitions = [
       ["audit_created_at_idx", ["createdAt"]],
     ],
   },
+  {
+    id: "conclusion_reports",
+    name: "Conclusion Reports",
+    columns: [
+      ["string", "eventId", 128, true],
+      ["string", "eventTitle", 160, true],
+      ["enum", "status", ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"], false, "DRAFT"],
+      ["string", "content", 12000, true],
+      ["string", "submittedBy", 64, true],
+      ["string", "submittedByName", 128, true],
+      ["datetime", "submittedAt", false],
+      ["datetime", "createdAt", true],
+      ["datetime", "updatedAt", true],
+    ],
+    indexes: [
+      ["conclusion_reports_event_idx", ["eventId"]],
+      ["conclusion_reports_status_idx", ["status"]],
+      ["conclusion_reports_submitted_by_idx", ["submittedBy"]],
+      ["conclusion_reports_updated_at_idx", ["updatedAt"]],
+    ],
+  },
+  {
+    id: "report_approvals",
+    name: "Report Approvals",
+    columns: [
+      ["string", "reportId", 64, true],
+      ["enum", "status", ["APPROVED", "REJECTED"], true],
+      ["string", "reviewedBy", 64, true],
+      ["string", "reviewedByName", 128, true],
+      ["string", "reviewNote", 1000, false],
+      ["datetime", "reviewedAt", true],
+    ],
+    indexes: [
+      ["report_approvals_report_idx", ["reportId"]],
+      ["report_approvals_status_idx", ["status"]],
+      ["report_approvals_reviewed_by_idx", ["reviewedBy"]],
+      ["report_approvals_reviewed_at_idx", ["reviewedAt"]],
+    ],
+  },
 ];
 
 async function ignoreAlreadyExists(action, label) {
@@ -182,6 +221,43 @@ async function ensureDatabase() {
 
     await databases.create(databaseId, "Volunteer Management");
     console.log(`created database ${databaseId}`);
+  }
+}
+
+async function deleteColumnIfExists(tableId, key) {
+  try {
+    const table = await tables.getTable(databaseId, tableId);
+    const existing = table.columns.some((column) => column.key === key);
+
+    if (!existing) {
+      return;
+    }
+
+    await tables.deleteColumn(databaseId, tableId, key);
+    console.log(`deleted legacy column ${tableId}.${key}`);
+    await waitForColumns(tableId);
+  } catch (error) {
+    if (error?.code === 404) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function migrateConclusionReportSchema(tableId) {
+  if (tableId !== "conclusion_reports") {
+    return;
+  }
+
+  for (const key of [
+    "objectives",
+    "outcomes",
+    "challenges",
+    "recommendations",
+    "attendanceNotes",
+  ]) {
+    await deleteColumnIfExists(tableId, key);
   }
 }
 
@@ -289,6 +365,8 @@ async function main() {
       () => tables.createTable(databaseId, table.id, table.name, [], false, true),
       `table ${table.id}`,
     );
+
+    await migrateConclusionReportSchema(table.id);
 
     for (const column of table.columns) {
       await createColumn(table.id, column);
