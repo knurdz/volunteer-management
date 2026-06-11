@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell, CheckCheck, ExternalLink, Inbox, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { isSafeNotificationLink } from "@/lib/validation/safe-links";
 import { cn } from "@/lib/utils";
 import type { Notification } from "@/features/notifications/types";
 
@@ -267,8 +268,12 @@ function NotificationListItem({
   onMarkRead: (notificationId: string) => void;
   pending: boolean;
 }) {
+  const linkHref =
+    notification.linkHref && isSafeNotificationLink(notification.linkHref)
+      ? notification.linkHref
+      : undefined;
   const mainContent = (
-    <div className={notification.linkHref ? "block" : undefined}>
+    <div className={linkHref ? "block" : undefined}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -281,7 +286,7 @@ function NotificationListItem({
             {notification.message}
           </p>
         </div>
-        {notification.linkHref ? (
+        {linkHref ? (
           <ExternalLink className="mt-1 size-4 shrink-0 text-text-muted" aria-hidden="true" />
         ) : null}
       </div>
@@ -290,8 +295,8 @@ function NotificationListItem({
 
   return (
     <div className={notificationItemClasses(!notification.readAt)}>
-      {notification.linkHref ? (
-        <Link href={notification.linkHref}>{mainContent}</Link>
+      {linkHref ? (
+        <Link href={linkHref}>{mainContent}</Link>
       ) : (
         mainContent
       )}

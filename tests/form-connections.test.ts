@@ -27,7 +27,7 @@ describe("form connections", () => {
       input: {
         eventId: "event-1",
         externalFormId: "google-form-id",
-        formUrl: "https://forms.google.com/example",
+        formUrl: "https://docs.google.com/forms/d/example/viewform",
         provider: "google_forms",
         purpose: "registration",
         title: "Registration form",
@@ -39,7 +39,7 @@ describe("form connections", () => {
       createdBy: "user-a",
       eventId: "event-1",
       externalFormId: "google-form-id",
-      formUrl: "https://forms.google.com/example",
+      formUrl: "https://docs.google.com/forms/d/example/viewform",
       provider: "google_forms",
       purpose: "registration",
     });
@@ -48,7 +48,7 @@ describe("form connections", () => {
       createFormConnectionSchema.parse({
         eventId: "event-1",
         fields: [{ label: "Name" }],
-        formUrl: "https://forms.google.com/example",
+        formUrl: "https://docs.google.com/forms/d/example/viewform",
         provider: "google_forms",
         purpose: "registration",
         title: "Registration form",
@@ -60,7 +60,7 @@ describe("form connections", () => {
     expect(() =>
       createFormConnectionSchema.parse({
         eventId: "event-1",
-        formUrl: "https://forms.google.com/example?token=secret",
+        formUrl: "https://docs.google.com/forms/d/example/viewform?token=secret",
         provider: "google_forms",
         purpose: "registration",
         title: "Registration form",
@@ -69,7 +69,7 @@ describe("form connections", () => {
     expect(() =>
       createFormConnectionSchema.parse({
         eventId: "event-1",
-        formUrl: "https://forms.google.com/example",
+        formUrl: "https://docs.google.com/forms/d/example/viewform",
         metadata: { apiKey: "secret" },
         provider: "google_forms",
         purpose: "registration",
@@ -79,7 +79,7 @@ describe("form connections", () => {
     expect(() =>
       createFormConnectionSchema.parse({
         eventId: "event-1",
-        formUrl: "https://forms.google.com/example",
+        formUrl: "https://docs.google.com/forms/d/example/viewform",
         provider: "typeform",
         purpose: "registration",
         title: "Registration form",
@@ -88,13 +88,31 @@ describe("form connections", () => {
     expect(() =>
       createFormConnectionSchema.parse({
         eventId: "event-1",
-        formUrl: "https://forms.google.com/example",
+        formUrl: "https://docs.google.com/forms/d/example/viewform",
         provider: "google_forms",
         purpose: "registration",
         status: "enabled",
         title: "Registration form",
       }),
     ).toThrow();
+    expect(() =>
+      createFormConnectionSchema.parse({
+        eventId: "event-1",
+        formUrl: "http://docs.google.com/forms/d/example/viewform",
+        provider: "google_forms",
+        purpose: "registration",
+        title: "Registration form",
+      }),
+    ).toThrow("HTTPS");
+    expect(() =>
+      createFormConnectionSchema.parse({
+        eventId: "event-1",
+        formUrl: "https://example.com/forms/d/example/viewform",
+        provider: "google_forms",
+        purpose: "registration",
+        title: "Registration form",
+      }),
+    ).toThrow("selected provider");
   });
 
   it("keeps placeholder event permissions conservative", async () => {
@@ -111,6 +129,39 @@ describe("form connections", () => {
         user,
       }),
     ).rejects.toThrow("access is required");
+  });
+
+  it("requires active verified users for form management, including admins", () => {
+    expect(
+      canManageFormConnections(
+        fakeUser({
+          isAdmin: true,
+          profile: {
+            $id: "admin-a",
+            authUserId: "admin-a",
+            googleEmail: "admin@example.com",
+            status: "ACTIVE",
+            uomVerified: false,
+          },
+        }),
+        "event-1",
+      ),
+    ).toBe(false);
+    expect(
+      canManageFormConnections(
+        fakeUser({
+          isAdmin: true,
+          profile: {
+            $id: "admin-a",
+            authUserId: "admin-a",
+            googleEmail: "admin@example.com",
+            status: "DISABLED",
+            uomVerified: true,
+          },
+        }),
+        "event-1",
+      ),
+    ).toBe(false);
   });
 });
 

@@ -25,21 +25,7 @@ export async function sendAdminNotification(
     const title = String(formData.get("title") ?? "").trim();
     const message = String(formData.get("message") ?? "").trim();
     const linkHref = String(formData.get("linkHref") ?? "").trim() || undefined;
-    const enableEmail = formData.get("enableEmail") === "on";
     const service = createAppwriteNotificationService();
-
-    if (enableEmail) {
-      await service.upsertPreferences(recipientUserId, {
-        emailEnabled: true,
-        inAppEnabled: true,
-        typePreferences: {
-          [type]: {
-            emailEnabled: true,
-            inAppEnabled: true,
-          },
-        },
-      });
-    }
 
     const parsed = createNotificationSchema.parse({
       actorUserId: admin.authUser.id,
@@ -54,7 +40,7 @@ export async function sendAdminNotification(
     });
     const result = await service.createNotification(parsed);
 
-    if (enableEmail && result.emailDelivery?.disabled) {
+    if (result.emailDelivery?.disabled) {
       return {
         message: `Notification saved, but email is disabled: ${result.emailDelivery.reason}`,
         status: "error",
@@ -62,7 +48,7 @@ export async function sendAdminNotification(
     }
 
     return {
-      message: enableEmail
+      message: result.emailDelivery
         ? "Notification saved and email delivery was requested."
         : "Notification saved in-app.",
       status: "success",
@@ -112,19 +98,9 @@ export async function sendAdminBulkNotification(
 
     const service = createAppwriteNotificationService();
     let disabledEmailCount = 0;
+    let requestedEmailCount = 0;
 
     for (const recipientUserId of recipientUserIds) {
-      await service.upsertPreferences(recipientUserId, {
-        emailEnabled: true,
-        inAppEnabled: true,
-        typePreferences: {
-          [type]: {
-            emailEnabled: true,
-            inAppEnabled: true,
-          },
-        },
-      });
-
       const parsed = createNotificationSchema.parse({
         actorUserId: admin.authUser.id,
         entityId: scope === "event" ? eventId : undefined,
@@ -144,6 +120,10 @@ export async function sendAdminBulkNotification(
       if (result.emailDelivery?.disabled) {
         disabledEmailCount += 1;
       }
+
+      if (result.emailDelivery) {
+        requestedEmailCount += 1;
+      }
     }
 
     if (disabledEmailCount > 0) {
@@ -156,9 +136,11 @@ export async function sendAdminBulkNotification(
     }
 
     return {
-      message: `Email delivery requested for ${recipientUserIds.length} recipient${
+      message: `${recipientUserIds.length} notification${
         recipientUserIds.length === 1 ? "" : "s"
-      }.`,
+      } saved. Email delivery requested for ${requestedEmailCount} recipient${
+        requestedEmailCount === 1 ? "" : "s"
+      } based on user preferences.`,
       status: "success",
     };
   } catch (error) {

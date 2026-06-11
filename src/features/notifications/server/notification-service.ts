@@ -8,9 +8,14 @@ import {
 } from "@/features/notifications/server/notification-repository";
 import {
   createNotificationEmailAdapter,
+  sendNotificationEmailWithRetry,
   type NotificationEmailAdapter,
   type NotificationEmailDelivery,
 } from "@/features/notifications/server/email-adapter";
+import {
+  createEmailRetryIdempotencyKey,
+  createNotificationIdempotencyKey,
+} from "@/features/notifications/server/email-idempotency";
 import type {
   CreateNotificationInput,
   Notification,
@@ -52,8 +57,14 @@ export function createNotificationService({
     const body = createNotificationSchema.parse(input);
     const preferences = await getPreferences(body.recipientUserId);
     const createdAt = now().toISOString();
+    const notificationIdempotencyKey =
+      body.idempotencyKey ?? body.emailIdempotencyKey;
     const notification = isInAppEnabled(preferences, body.type)
-      ? await repository.create({ ...body, createdAt })
+      ? await repository.create({
+          ...body,
+          createdAt,
+          idempotencyKey: notificationIdempotencyKey,
+        })
       : null;
     let emailDelivery: NotificationEmailDelivery | undefined;
 
@@ -61,8 +72,25 @@ export function createNotificationService({
       const recipientEmail = await repository.getRecipientEmail(body.recipientUserId);
 
       if (recipientEmail) {
-        emailDelivery = await emailAdapter.sendNotification(
-          buildNotificationEmailMessage({ input: body, to: recipientEmail }),
+        emailDelivery = await sendNotificationEmailWithRetry(
+          emailAdapter,
+          buildNotificationEmailMessage({
+            idempotencyKey:
+              body.emailIdempotencyKey ??
+              body.idempotencyKey ??
+              createEmailRetryIdempotencyKey([
+                "notification",
+                notification?.id,
+                body.recipientUserId,
+                body.type,
+                body.entityType,
+                body.entityId,
+                body.title,
+                body.message,
+              ]),
+            input: body,
+            to: recipientEmail,
+          }),
         );
       }
     }
@@ -93,6 +121,7 @@ export function createNotificationService({
       actorUserId?: string;
       eventId: string;
       eventTitle: string;
+      idempotencyKey?: string;
       linkHref?: string;
       message?: string;
       recipientUserId: string;
@@ -101,6 +130,14 @@ export function createNotificationService({
         actorUserId: input.actorUserId,
         entityId: input.eventId,
         entityType: "event",
+        idempotencyKey:
+          input.idempotencyKey ??
+          createNotificationIdempotencyKey([
+            "event_update",
+            input.eventId,
+            input.recipientUserId,
+            input.message ?? input.eventTitle,
+          ]),
         linkHref: input.linkHref,
         message: input.message ?? `${input.eventTitle} has an event update.`,
         recipientUserId: input.recipientUserId,
@@ -113,6 +150,7 @@ export function createNotificationService({
       actorUserId?: string;
       eventId: string;
       eventTitle: string;
+      idempotencyKey?: string;
       linkHref?: string;
       recipientUserId: string;
     }) {
@@ -120,6 +158,13 @@ export function createNotificationService({
         actorUserId: input.actorUserId,
         entityId: input.eventId,
         entityType: "grading_request",
+        idempotencyKey:
+          input.idempotencyKey ??
+          createNotificationIdempotencyKey([
+            "grading_request",
+            input.eventId,
+            input.recipientUserId,
+          ]),
         linkHref: input.linkHref,
         message: `Volunteer grading is requested for ${input.eventTitle}.`,
         recipientUserId: input.recipientUserId,
@@ -134,6 +179,7 @@ export function createNotificationService({
       actorUserId?: string;
       eventId: string;
       eventTitle: string;
+      idempotencyKey?: string;
       linkHref?: string;
       recipientUserId: string;
       status?: "approved" | "needs_changes";
@@ -144,6 +190,14 @@ export function createNotificationService({
         actorUserId: input.actorUserId,
         entityId: input.eventId,
         entityType: "report",
+        idempotencyKey:
+          input.idempotencyKey ??
+          createNotificationIdempotencyKey([
+            "report_approval",
+            input.eventId,
+            input.recipientUserId,
+            status,
+          ]),
         linkHref: input.linkHref,
         message:
           status === "approved"
@@ -157,6 +211,7 @@ export function createNotificationService({
 
     createRoleAssignmentNotification(input: {
       actorUserId?: string;
+      idempotencyKey?: string;
       linkHref?: string;
       recipientUserId: string;
       role: string;
@@ -167,6 +222,14 @@ export function createNotificationService({
       return createNotification({
         actorUserId: input.actorUserId,
         entityType: "role_assignment",
+        idempotencyKey:
+          input.idempotencyKey ??
+          createNotificationIdempotencyKey([
+            "role_assignment",
+            input.recipientUserId,
+            input.role,
+            scope,
+          ]),
         linkHref: input.linkHref,
         message: `You were assigned ${input.role} in ${scope}.`,
         metadata: {
@@ -181,6 +244,7 @@ export function createNotificationService({
 
     createVerificationNotification(input: {
       actorUserId?: string;
+      idempotencyKey?: string;
       linkHref?: string;
       recipientUserId: string;
       verified?: boolean;
@@ -190,6 +254,13 @@ export function createNotificationService({
       return createNotification({
         actorUserId: input.actorUserId,
         entityType: "verification",
+        idempotencyKey:
+          input.idempotencyKey ??
+          createNotificationIdempotencyKey([
+            "verification",
+            input.recipientUserId,
+            verified,
+          ]),
         linkHref: input.linkHref ?? "/verify-uom",
         message: verified
           ? "Your UoM email verification is complete."
@@ -202,6 +273,10 @@ export function createNotificationService({
 
     getUnreadCount(userId: string) {
       return repository.getUnreadCount(userId);
+    },
+
+    getPreferencesForUser(userId: string) {
+      return getPreferences(userId);
     },
 
     listNotificationsForUser,
@@ -218,7 +293,10 @@ export function createNotificationService({
       });
     },
 
-    async sendUnreadDigestForUser(userId: string): Promise<NotificationDigestResult> {
+    async sendUnreadDigestForUser(
+      userId: string,
+      options: { idempotencyKey?: string } = {},
+    ): Promise<NotificationDigestResult> {
       const preferences = await getPreferences(userId);
       const unreadCount = await repository.getUnreadCount(userId);
 
@@ -251,11 +329,18 @@ export function createNotificationService({
         };
       }
 
-      const { notifications } = await listNotificationsForUser(userId, { limit: 5 });
-      const unreadNotifications = notifications.filter(
-        (notification) => !notification.readAt,
-      );
-      const emailDelivery = await emailAdapter.sendNotification({
+      const unreadNotifications = await repository.listUnreadForRecipient(userId, {
+        limit: 5,
+      });
+      const emailDelivery = await sendNotificationEmailWithRetry(emailAdapter, {
+        idempotencyKey:
+          options.idempotencyKey ??
+          createEmailRetryIdempotencyKey([
+            "unread-digest",
+            userId,
+            unreadCount,
+            unreadNotifications.map((notification) => notification.id),
+          ]),
         subject: `You have ${unreadCount} unread IEEE SB UoM notification${
           unreadCount === 1 ? "" : "s"
         }`,
@@ -310,12 +395,27 @@ export async function listNotificationsForCurrentUser(options?: { limit?: number
   return getNotificationSummaryForUser(user.authUser.id, options);
 }
 
+export async function getNotificationPreferencesForUser(userId: string) {
+  return createAppwriteNotificationService().getPreferencesForUser(userId);
+}
+
+export async function getNotificationPreferencesForCurrentUser() {
+  const user = await requireAuth();
+  return getNotificationPreferencesForUser(user.authUser.id);
+}
+
 export async function markNotificationsReadForCurrentUser(notificationIds: string[]) {
   const user = await requireAuth();
   return createAppwriteNotificationService().markNotificationsRead(
     user.authUser.id,
     notificationIds,
   );
+}
+
+export async function upsertNotificationPreferencesForCurrentUser(input: unknown) {
+  const user = await requireAuth();
+
+  return createAppwriteNotificationService().upsertPreferences(user.authUser.id, input);
 }
 
 function getDefaultPreferences(userId: string, date: Date): NotificationPreference {
@@ -346,15 +446,18 @@ function isEmailEnabled(
 }
 
 function buildNotificationEmailMessage({
+  idempotencyKey,
   input,
   to,
 }: {
+  idempotencyKey: string;
   input: CreateNotificationInput;
   to: string;
 }) {
   const linkLine = input.linkHref ? `\n\nOpen: ${input.linkHref}` : "";
 
   return {
+    idempotencyKey,
     subject: input.title,
     text: `${input.message}${linkLine}`,
     to,

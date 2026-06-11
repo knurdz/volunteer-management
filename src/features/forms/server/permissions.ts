@@ -12,10 +12,17 @@ const FORM_VIEWER_EVENT_ROLES = [
 ] as const;
 
 export function canManageFormConnections(user: SessionUser, eventId: string) {
-  return user.isAdmin || hasEventRole(user, eventId, [...FORM_MANAGER_EVENT_ROLES]);
+  return (
+    hasActiveVerifiedProfile(user) &&
+    (user.isAdmin || hasEventRole(user, eventId, [...FORM_MANAGER_EVENT_ROLES]))
+  );
 }
 
 export function canListFormConnections(user: SessionUser, eventId?: string) {
+  if (!hasActiveVerifiedProfile(user)) {
+    return false;
+  }
+
   if (user.isAdmin) {
     return true;
   }
@@ -27,4 +34,8 @@ export function canListFormConnections(user: SessionUser, eventId?: string) {
   }
 
   return hasEventRole(user, eventId, [...FORM_VIEWER_EVENT_ROLES]);
+}
+
+function hasActiveVerifiedProfile(user: SessionUser) {
+  return user.profile.status === "ACTIVE" && user.profile.uomVerified;
 }

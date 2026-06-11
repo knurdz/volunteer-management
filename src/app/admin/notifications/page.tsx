@@ -43,7 +43,7 @@ export default async function AdminNotificationsPage() {
       <div className="space-y-6">
         <PageHeader
           title="Send Notification"
-          description="Create an in-app notification and optionally request email delivery."
+          description="Create notifications while respecting recipient delivery preferences."
           actions={
             <Link className={buttonClasses()} href="/dashboard">
               <ArrowLeft className="size-4" aria-hidden="true" />
@@ -59,7 +59,7 @@ export default async function AdminNotificationsPage() {
               Notification Composer
             </CardTitle>
             <CardDescription>
-              Admin-only server action. Normal users cannot create arbitrary notifications.
+              Admin-only server action. Normal users control their own delivery preferences.
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -94,23 +94,6 @@ export function AdminNotificationForm({
 
           <MessageFields />
 
-          <label className="flex items-start gap-3 rounded-md border border-border bg-surface-subtle p-3 text-sm text-text-secondary">
-            <input
-              className="mt-1 size-4 rounded border-border"
-              name="enableEmail"
-              type="checkbox"
-            />
-            <span>
-              <span className="block font-medium text-text-primary">
-                Send email too
-              </span>
-              <span>
-                Enables email notifications for this recipient and notification type
-                before sending.
-              </span>
-            </span>
-          </label>
-
           <ActionNotice state={state} />
 
           <Button
@@ -164,8 +147,8 @@ export function AdminNotificationForm({
           <MessageFields />
 
           <p className="rounded-md border border-border bg-surface-subtle px-3 py-2 text-sm text-text-secondary">
-            Bulk sends always create in-app notifications and request email delivery.
-            SMTP must be enabled in `.env.local` for the email to leave the system.
+            Bulk sends create notifications for each recipient. Email delivery follows
+            saved recipient preferences.
           </p>
 
           <ActionNotice state={bulkState} />
@@ -184,7 +167,7 @@ export function AdminNotificationForm({
             ) : (
               <Send className="size-4" aria-hidden="true" />
             )}
-            {bulkPending ? "Sending" : "Send Bulk Email"}
+            {bulkPending ? "Sending" : "Send Bulk Notification"}
           </Button>
         </form>
       )}

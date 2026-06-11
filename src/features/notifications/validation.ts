@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { safeJsonObjectSchema } from "@/lib/validation/safe-json";
+import { isSafeNotificationLink } from "@/lib/validation/safe-links";
 import { NOTIFICATION_TYPES } from "@/features/notifications/types";
 
 const optionalTrimmedString = (max: number) =>
@@ -17,12 +18,18 @@ export const createNotificationSchema = z
     actorUserId: optionalTrimmedString(64),
     entityId: optionalTrimmedString(128),
     entityType: optionalTrimmedString(64),
+    emailIdempotencyKey: optionalTrimmedString(160),
+    idempotencyKey: optionalTrimmedString(160),
     linkHref: z
       .string()
       .trim()
       .max(512)
       .optional()
-      .transform((value) => value || undefined),
+      .transform((value) => value || undefined)
+      .refine((value) => !value || isSafeNotificationLink(value), {
+        message:
+          "Notification links must be internal paths or approved HTTPS URLs.",
+      }),
     message: z.string().trim().min(1).max(1000),
     metadata: safeJsonObjectSchema.optional(),
     recipientUserId: z.string().trim().min(1).max(64),

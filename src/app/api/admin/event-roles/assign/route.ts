@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/features/access-control/server/current-user";
 import { jsonError, routeErrorStatus } from "@/server/errors";
 import { assignEventRole, parseEventRole } from "@/features/access-control/server/roles";
+import { notifyRoleAssignmentWorkflow } from "@/features/notifications/server/workflow-notifications";
 
 const roleSchema = z.object({
   committeeName: z
@@ -29,8 +30,12 @@ export async function POST(request: Request) {
       role: parseEventRole(body.role),
       userId: body.userId,
     });
+    const notification = await notifyRoleAssignmentWorkflow({
+      actorUserId: admin.authUser.id,
+      assignment,
+    });
 
-    return NextResponse.json({ assignment });
+    return NextResponse.json({ assignment, notification });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Event role assignment failed.",

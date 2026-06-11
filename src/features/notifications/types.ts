@@ -42,8 +42,10 @@ export type NotificationPreference = {
 
 export type CreateNotificationInput = {
   actorUserId?: string;
+  emailIdempotencyKey?: string;
   entityId?: string;
   entityType?: string;
+  idempotencyKey?: string;
   linkHref?: string;
   message: string;
   metadata?: SafeJsonObject;

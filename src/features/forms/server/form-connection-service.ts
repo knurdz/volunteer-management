@@ -65,12 +65,15 @@ export function createAppwriteFormConnectionService() {
   });
 }
 
-export async function createFormConnectionForCurrentUser(input: CreateFormConnectionInput) {
-  const user = await requireAuth();
+export async function createFormConnectionForCurrentUser(
+  input: CreateFormConnectionInput,
+  user?: SessionUser,
+) {
+  const currentUser = user ?? (await requireAuth());
 
   return createAppwriteFormConnectionService().createFormConnection({
     input,
-    user,
+    user: currentUser,
   });
 }
 

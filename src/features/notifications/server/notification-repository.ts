@@ -1,13 +1,15 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import type { Models } from "node-appwrite";
 import { ID, Query } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getServerEnv } from "@/lib/env";
 import { parseSafeJsonObject, serializeSafeJson } from "@/lib/validation/safe-json";
+import { isSafeNotificationLink } from "@/lib/validation/safe-links";
 import { notificationPreferencesSchema } from "@/features/notifications/validation";
 import { getAppwriteAdminServices } from "@/server/appwrite";
-import { isAppwriteNotFound } from "@/server/errors";
+import { isAppwriteConflict, isAppwriteNotFound } from "@/server/errors";
 import type {
   CreateNotificationInput,
   Notification,
@@ -25,6 +27,10 @@ export type NotificationRepository = {
     userId: string,
     options?: { limit?: number },
   ): Promise<Notification[]>;
+  listUnreadForRecipient(
+    userId: string,
+    options?: { limit?: number },
+  ): Promise<Notification[]>;
   listUnreadRecipientUserIds(options?: { limit?: number }): Promise<string[]>;
   markReadForRecipient(input: {
     notificationIds: string[];
@@ -37,6 +43,8 @@ export type NotificationRepository = {
 };
 
 export function toNotification(row: AppRow): Notification {
+  const linkHref = typeof row.linkHref === "string" ? row.linkHref.trim() : "";
+
   return {
     actorUserId:
       typeof row.actorUserId === "string" && row.actorUserId
@@ -50,8 +58,7 @@ export function toNotification(row: AppRow): Notification {
         ? row.entityType
         : undefined,
     id: row.$id,
-    linkHref:
-      typeof row.linkHref === "string" && row.linkHref ? row.linkHref : undefined,
+    linkHref: linkHref && isSafeNotificationLink(linkHref) ? linkHref : undefined,
     message: String(row.message),
     metadata: parseSafeJsonObject(row.metadata),
     readAt: typeof row.readAt === "string" && row.readAt ? row.readAt : null,
@@ -97,27 +104,98 @@ export function createAppwriteNotificationRepository(): NotificationRepository {
     return result.rows.map((row) => toNotification(row as AppRow));
   }
 
+  async function listUnreadForRecipient(
+    userId: string,
+    options: { limit?: number } = {},
+  ) {
+    const env = getServerEnv();
+    const { tables } = getAppwriteAdminServices();
+    const unreadNotifications: Notification[] = [];
+    const limit = options.limit ?? 25;
+    let cursor: string | undefined;
+
+    while (unreadNotifications.length < limit) {
+      const queries = [
+        Query.equal("recipientUserId", userId),
+        Query.orderDesc("createdAt"),
+        Query.limit(100),
+      ];
+
+      if (cursor) {
+        queries.push(Query.cursorAfter(cursor));
+      }
+
+      const result = await tables.listRows(
+        env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+        APPWRITE_TABLES.notifications,
+        queries,
+        undefined,
+        false,
+      );
+
+      for (const row of result.rows) {
+        const notification = toNotification(row as AppRow);
+
+        if (!notification.readAt) {
+          unreadNotifications.push(notification);
+        }
+
+        if (unreadNotifications.length >= limit) {
+          break;
+        }
+      }
+
+      const lastRow = result.rows.at(-1) as AppRow | undefined;
+
+      if (result.rows.length < 100 || !lastRow) {
+        break;
+      }
+
+      cursor = lastRow.$id;
+    }
+
+    return unreadNotifications;
+  }
+
   return {
     async create(input) {
       const env = getServerEnv();
       const { tables } = getAppwriteAdminServices();
-      const row = await tables.createRow<AppRow>(
-        env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-        APPWRITE_TABLES.notifications,
-        ID.unique(),
-        {
-          actorUserId: input.actorUserId ?? "",
-          createdAt: input.createdAt,
-          entityId: input.entityId ?? "",
-          entityType: input.entityType ?? "",
-          linkHref: input.linkHref ?? "",
-          message: input.message,
-          metadata: serializeSafeJson(input.metadata),
-          recipientUserId: input.recipientUserId,
-          title: input.title,
-          type: input.type,
-        },
-      );
+      const rowId = input.idempotencyKey
+        ? notificationRowId(input.idempotencyKey)
+        : ID.unique();
+
+      let row: AppRow;
+
+      try {
+        row = await tables.createRow<AppRow>(
+          env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+          APPWRITE_TABLES.notifications,
+          rowId,
+          {
+            actorUserId: input.actorUserId ?? "",
+            createdAt: input.createdAt,
+            entityId: input.entityId ?? "",
+            entityType: input.entityType ?? "",
+            linkHref: input.linkHref ?? "",
+            message: input.message,
+            metadata: serializeSafeJson(input.metadata),
+            recipientUserId: input.recipientUserId,
+            title: input.title,
+            type: input.type,
+          },
+        );
+      } catch (error) {
+        if (!input.idempotencyKey || !isAppwriteConflict(error)) {
+          throw error;
+        }
+
+        row = await tables.getRow<AppRow>(
+          env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+          APPWRITE_TABLES.notifications,
+          rowId,
+        );
+      }
 
       return toNotification(row);
     },
@@ -168,28 +246,57 @@ export function createAppwriteNotificationRepository(): NotificationRepository {
     },
 
     async getUnreadCount(userId) {
-      const notifications = await listForRecipient(userId, { limit: 500 });
-      return notifications.filter((notification) => !notification.readAt).length;
+      return (await listUnreadForRecipient(userId, { limit: 5000 })).length;
     },
 
     listForRecipient,
 
+    listUnreadForRecipient,
+
     async listUnreadRecipientUserIds(options = {}) {
       const env = getServerEnv();
       const { tables } = getAppwriteAdminServices();
-      const result = await tables.listRows(
-        env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-        APPWRITE_TABLES.notifications,
-        [Query.orderDesc("createdAt"), Query.limit(options.limit ?? 500)],
-        undefined,
-        false,
-      );
-      const recipients = result.rows
-        .map((row) => toNotification(row as AppRow))
-        .filter((notification) => !notification.readAt)
-        .map((notification) => notification.recipientUserId);
+      const recipients = new Set<string>();
+      const limit = options.limit ?? 500;
+      let cursor: string | undefined;
 
-      return [...new Set(recipients)];
+      while (recipients.size < limit) {
+        const queries = [Query.orderDesc("createdAt"), Query.limit(100)];
+
+        if (cursor) {
+          queries.push(Query.cursorAfter(cursor));
+        }
+
+        const result = await tables.listRows(
+          env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+          APPWRITE_TABLES.notifications,
+          queries,
+          undefined,
+          false,
+        );
+
+        for (const row of result.rows) {
+          const notification = toNotification(row as AppRow);
+
+          if (!notification.readAt) {
+            recipients.add(notification.recipientUserId);
+          }
+
+          if (recipients.size >= limit) {
+            break;
+          }
+        }
+
+        const lastRow = result.rows.at(-1) as AppRow | undefined;
+
+        if (result.rows.length < 100 || !lastRow) {
+          break;
+        }
+
+        cursor = lastRow.$id;
+      }
+
+      return [...recipients];
     },
 
     async markReadForRecipient({ notificationIds, readAt, userId }) {
@@ -276,4 +383,9 @@ export function createAppwriteNotificationRepository(): NotificationRepository {
       }
     },
   };
+}
+
+function notificationRowId(idempotencyKey: string) {
+  const digest = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 34);
+  return `n_${digest}`;
 }
