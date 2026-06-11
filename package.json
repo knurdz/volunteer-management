@@ -6,15 +6,15 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "NODE_OPTIONS=--disable-warning=DEP0205 FORCE_NODE_FETCH=1 next dev",
-    "build": "NODE_OPTIONS=--disable-warning=DEP0205 FORCE_NODE_FETCH=1 next build",
-    "start": "NODE_OPTIONS=--disable-warning=DEP0205 FORCE_NODE_FETCH=1 next start",
+    "dev": "node scripts/run-with-env.mjs next dev",
+    "build": "node scripts/run-with-env.mjs next build",
+    "start": "node scripts/run-with-env.mjs next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "NODE_OPTIONS=--disable-warning=DEP0205 vitest run",
+    "test": "node scripts/run-with-env.mjs vitest run",
     "check": "npm run lint && npm run typecheck",
-    "setup:appwrite": "FORCE_NODE_FETCH=1 node scripts/setup-appwrite.mjs",
-    "setup:appwrite:oauth": "FORCE_NODE_FETCH=1 node scripts/setup-appwrite-google-oauth.mjs"
+    "setup:appwrite": "node scripts/run-with-env.mjs node scripts/setup-appwrite.mjs",
+    "setup:appwrite:oauth": "node scripts/run-with-env.mjs node scripts/setup-appwrite-google-oauth.mjs"
   },
   "dependencies": {
     "appwrite": "^25.2.0",

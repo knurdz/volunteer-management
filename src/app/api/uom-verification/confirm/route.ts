@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "@/features/access-control/server/current-user";
 import { jsonError, routeErrorStatus } from "@/server/errors";
 import { confirmUomVerification } from "@/features/access-control/server/uom-verification";
+import { notifyVerificationWorkflow } from "@/features/notifications/server/workflow-notifications";
 
 const confirmSchema = z.object({
   code: z.string().min(4).max(12),
@@ -18,8 +19,13 @@ export async function POST(request: Request) {
       requestId: body.requestId,
       userId: user.authUser.id,
     });
+    const notification = await notifyVerificationWorkflow({
+      actorUserId: user.authUser.id,
+      recipientUserId: user.authUser.id,
+      verified: true,
+    });
 
-    return NextResponse.json({ profile });
+    return NextResponse.json({ notification, profile });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Verification confirmation failed.",
