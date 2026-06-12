@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, startTransition } from "react";
+import { useEffect, useState, startTransition, useRef } from "react";
 import {
   Trophy,
   Award,
@@ -18,22 +18,240 @@ import type { SessionUser } from "@/features/access-control/types";
 import {
   upsertParticipationRecord,
   toggleTopBoardExclusion,
+  listVolunteers,
+  listParticipationRecords,
+  listDetailedReviews,
 } from "../server/actions";
 import type {
   PointLedgerEntry,
   GradeRequest,
+  ParticipationRecord,
+  GradeAuditEntry,
 } from "../types";
 
-export function ScoringDashboard({ user }: { user: SessionUser }) {
-  const [activeTab, setActiveTab] = useState<
-    "leaderboard" | "my-points" | "grading" | "participation" | "admin"
-  >("leaderboard");
+interface VolunteerOption {
+  id: string;
+  name: string;
+}
+
+interface DetailedGradeReview {
+  $id: string;
+  gradeRequestId: string;
+  reviewerId: string;
+  reviewerName: string;
+  volunteerName: string;
+  eventId: string;
+  gradeValue: number;
+  submittedAt: string;
+  audit_metadata?: string;
+}
+
+export function VolunteerSelect({
+  value,
+  onChange,
+  volunteers,
+  loading,
+  error,
+  placeholder = "Select a volunteer...",
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  volunteers: VolunteerOption[];
+  loading: boolean;
+  error: string | null;
+  placeholder?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [manualMode, setManualMode] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const isManual = manualMode || !!error;
+
+  if (isManual) {
+    return (
+      <div className="space-y-1">
+        <input
+          type="text"
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter Volunteer User ID manually"
+          className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+        />
+        {error && (
+          <p className="text-xs text-red-500">
+            Failed to load volunteers ({error}). Manual entry enabled.
+          </p>
+        )}
+        {!error && (
+          <button
+            type="button"
+            onClick={() => setManualMode(false)}
+            className="text-xs text-primary underline"
+          >
+            Switch back to dropdown
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const selectedVolunteer = volunteers.find((v) => v.id === value);
+  const filteredVolunteers = volunteers.filter((v) =>
+    v.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <div
+        className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface flex justify-between items-center cursor-pointer select-none"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className={selectedVolunteer ? "text-text-primary" : "text-text-secondary"}>
+          {selectedVolunteer ? selectedVolunteer.name : placeholder}
+        </span>
+        <span className="text-xs text-text-secondary">▼</span>
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full rounded-md bg-surface border border-border shadow-lg max-h-60 overflow-y-auto flex flex-col p-1 gap-1">
+          <input
+            type="text"
+            placeholder="Search name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-2 py-1.5 text-sm border border-border rounded bg-surface-muted"
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+          />
+          {loading ? (
+            <div className="px-2 py-1.5 text-sm text-text-secondary font-medium">Loading...</div>
+          ) : filteredVolunteers.length > 0 ? (
+            filteredVolunteers.map((v) => (
+              <div
+                key={v.id}
+                onClick={() => {
+                  onChange(v.id);
+                  setIsOpen(false);
+                  setSearch("");
+                }}
+                className={`px-2 py-1.5 text-sm rounded cursor-pointer transition-colors ${
+                  v.id === value
+                    ? "bg-primary-soft text-primary font-semibold"
+                    : "hover:bg-surface-muted text-text-primary"
+                }`}
+              >
+                {v.name}
+              </div>
+            ))
+          ) : (
+            <div className="px-2 py-1.5 text-sm text-text-secondary">No volunteers found</div>
+          )}
+          <div className="border-t border-border mt-1 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setManualMode(true);
+                setIsOpen(false);
+              }}
+              className="w-full text-left px-2 py-1 text-xs text-primary hover:underline"
+            >
+              Enter User ID manually
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ScoringDashboard({
+  user,
+  userRole,
+}: {
+  user: SessionUser;
+  userRole?: "Admin" | "Chairperson" | "Member";
+}) {
+  const [activeTab, setActiveTab] = useState<string>("leaderboard");
 
   const [leaderboard, setLeaderboard] = useState<
     { userId: string; name: string; points: number }[]
   >([]);
   const [ledger, setLedger] = useState<PointLedgerEntry[]>([]);
   const [gradeRequests, setGradeRequests] = useState<GradeRequest[]>([]);
+
+  // Derived role
+  const derivedRole =
+    userRole ||
+    (user.isAdmin
+      ? "Admin"
+      : user.eventRoles.some((r) => r.active && r.role === "Chair")
+      ? "Chairperson"
+      : "Member");
+
+  const [prevRole, setPrevRole] = useState(derivedRole);
+  if (derivedRole !== prevRole) {
+    setPrevRole(derivedRole);
+    setActiveTab("leaderboard");
+  }
+
+  // Dynamic tab list
+  const tabs = (() => {
+    switch (derivedRole) {
+      case "Admin":
+        return [
+          { id: "leaderboard", label: "Leaderboard", icon: Trophy },
+          { id: "point-ledger", label: "Point Ledger", icon: Award },
+          { id: "grade-requests", label: "Grade Requests", icon: BookOpen },
+          { id: "grade-reviews", label: "Grade Reviews", icon: BookOpen },
+          { id: "finalize-grades", label: "Finalize Grades", icon: BookOpen },
+          { id: "participation", label: "Participation Tracking", icon: CalendarCheck2 },
+          { id: "admin-tools", label: "Admin Tools", icon: Sliders },
+        ];
+      case "Chairperson":
+        return [
+          { id: "leaderboard", label: "Leaderboard", icon: Trophy },
+          { id: "point-ledger", label: "Point Ledger", icon: Award },
+          { id: "grade-requests", label: "Grade Requests", icon: BookOpen },
+          { id: "participation", label: "Participation Tracking", icon: CalendarCheck2 },
+        ];
+      case "Member":
+      default:
+        return [
+          { id: "leaderboard", label: "Leaderboard", icon: Trophy },
+          { id: "point-ledger", label: "Point Ledger", icon: Award },
+          { id: "participation", label: "My Participation", icon: CalendarCheck2 },
+        ];
+    }
+  })();
+
+  const currentTab = tabs.some((t) => t.id === activeTab) ? activeTab : "leaderboard";
+
+  // Volunteers state for selectors
+  const [volunteers, setVolunteers] = useState<VolunteerOption[]>([]);
+  const [volunteersLoading, setVolunteersLoading] = useState(false);
+  const [volunteersError, setVolunteersError] = useState<string | null>(null);
+
+  // Selected volunteer for admin point ledger
+  const [selectedVolPointsId, setSelectedVolPointsId] = useState(user.authUser.id);
+
+  // Detailed reviews for admin
+  const [detailedReviews, setDetailedReviews] = useState<DetailedGradeReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  // Scoped participation records
+  const [participationRecords, setParticipationRecords] = useState<ParticipationRecord[]>([]);
 
   // Filters for Leaderboard
   const [filterTerm, setFilterTerm] = useState("2026");
@@ -53,8 +271,6 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
   const [revRequestId, setRevRequestId] = useState("");
   const [revGradeValue, setRevGradeValue] = useState(5);
 
-
-
   const [overReviewId, setOverReviewId] = useState("");
   const [overGradeValue, setOverGradeValue] = useState(5);
   const [overReason, setOverReason] = useState("");
@@ -68,6 +284,23 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Fetch volunteers list on mount
+  useEffect(() => {
+    async function loadVolunteers() {
+      setVolunteersLoading(true);
+      setVolunteersError(null);
+      try {
+        const list = await listVolunteers();
+        setVolunteers(list);
+      } catch (err) {
+        setVolunteersError(err instanceof Error ? err.message : "Failed to fetch volunteers list.");
+      } finally {
+        setVolunteersLoading(false);
+      }
+    }
+    loadVolunteers();
+  }, []);
 
   // Fetch leaderboard
   const fetchLeaderboard = async () => {
@@ -90,12 +323,12 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
     }
   };
 
-  // Fetch logged in user points
-  const fetchMyPoints = async () => {
+  // Fetch points for a user
+  const fetchPointsForUser = async (targetUserId: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/scoring/volunteers/${user.authUser.id}/points`);
+      const res = await fetch(`/api/scoring/volunteers/${targetUserId}/points`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setLedger(data.points || []);
@@ -122,14 +355,48 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
     }
   };
 
+  // Fetch detailed grade reviews for admin
+  const fetchDetailedReviews = async () => {
+    if (derivedRole !== "Admin") return;
+    setReviewsLoading(true);
+    setError(null);
+    try {
+      const reviews = await listDetailedReviews();
+      setDetailedReviews(reviews);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load grade reviews.");
+    } finally {
+      setReviewsLoading(false);
+    }
+  };
+
+  // Fetch scoped participation records
+  const fetchParticipationRecords = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const records = await listParticipationRecords();
+      setParticipationRecords(records);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load participation records.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
-      if (activeTab === "leaderboard") {
+      if (currentTab === "leaderboard") {
         await fetchLeaderboard();
-      } else if (activeTab === "my-points") {
-        await fetchMyPoints();
-      } else if (activeTab === "grading") {
+      } else if (currentTab === "point-ledger") {
+        const targetId = derivedRole === "Admin" ? selectedVolPointsId || user.authUser.id : user.authUser.id;
+        await fetchPointsForUser(targetId);
+      } else if (currentTab === "grade-requests") {
         await fetchGradeRequests();
+      } else if (currentTab === "grade-reviews") {
+        await fetchDetailedReviews();
+      } else if (currentTab === "participation") {
+        await fetchParticipationRecords();
       }
     };
     const timer = setTimeout(() => {
@@ -137,93 +404,68 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
     }, 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, filterTerm, filterYear, filterMonth]);
+  }, [currentTab, filterTerm, filterYear, filterMonth, selectedVolPointsId]);
 
   // Form submission helpers
-  const handleParticipationSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+
+  const handleDeleteRequest = async (requestId: string) => {
     setError(null);
     setSuccess(null);
     try {
-      await upsertParticipationRecord({
-        userId: partUserId,
-        eventId: partEventId,
-        role: partRole,
-        status: partStatus,
+      const res = await fetch(`/api/scoring/grade-requests/${requestId}`, {
+        method: "DELETE",
       });
-      setSuccess("Participation record recorded successfully!");
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setSuccess("Grade request deleted/rejected successfully.");
+      await fetchGradeRequests();
+      if (derivedRole === "Admin") {
+        await fetchDetailedReviews();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upsert participation.");
+      setError(err instanceof Error ? err.message : "Failed to delete request.");
     }
   };
 
+
+
+
+
   return (
     <div className="space-y-6">
+      {/* Dashboard Header with Role Badge */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-surface p-4 rounded-lg border border-border gap-2">
+        <div className="flex items-center gap-3">
+          <span className="font-semibold text-text-primary text-sm uppercase tracking-wider">Dashboard View Mode:</span>
+          <Badge tone={derivedRole === "Admin" ? "primary" : derivedRole === "Chairperson" ? "warning" : "neutral"}>
+            {derivedRole}
+          </Badge>
+        </div>
+        <div className="text-xs text-text-secondary">
+          Logged in as: <span className="font-semibold">{user.authUser.name}</span> ({user.authUser.email})
+        </div>
+      </div>
+
       {/* Tab bar header */}
       <div className="flex border-b border-border bg-surface px-4 py-2 rounded-t-lg gap-2 overflow-x-auto">
-        <button
-          onClick={() => startTransition(() => setActiveTab("leaderboard"))}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-            activeTab === "leaderboard"
-              ? "bg-primary-soft text-primary border border-primary/20"
-              : "text-text-secondary hover:bg-surface-muted"
-          }`}
-        >
-          <Trophy className="size-4" />
-          Leaderboard
-        </button>
-
-        <button
-          onClick={() => startTransition(() => setActiveTab("my-points"))}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-            activeTab === "my-points"
-              ? "bg-primary-soft text-primary border border-primary/20"
-              : "text-text-secondary hover:bg-surface-muted"
-          }`}
-        >
-          <Award className="size-4" />
-          My Points
-        </button>
-
-        <button
-          onClick={() => startTransition(() => setActiveTab("grading"))}
-          className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-            activeTab === "grading"
-              ? "bg-primary-soft text-primary border border-primary/20"
-              : "text-text-secondary hover:bg-surface-muted"
-          }`}
-        >
-          <BookOpen className="size-4" />
-          Grading Request Flow
-        </button>
-
-        {(user.isAdmin || user.eventRoles.some((r) => r.active && r.role === "Chair")) && (
-          <button
-            onClick={() => startTransition(() => setActiveTab("participation"))}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-              activeTab === "participation"
-                ? "bg-primary-soft text-primary border border-primary/20"
-                : "text-text-secondary hover:bg-surface-muted"
-            }`}
-          >
-            <CalendarCheck2 className="size-4" />
-            Participation
-          </button>
-        )}
-
-        {user.isAdmin && (
-          <button
-            onClick={() => startTransition(() => setActiveTab("admin"))}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors ${
-              activeTab === "admin"
-                ? "bg-primary-soft text-primary border border-primary/20"
-                : "text-text-secondary hover:bg-surface-muted"
-            }`}
-          >
-            <Sliders className="size-4" />
-            Admin Override
-          </button>
-        )}
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = currentTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => startTransition(() => setActiveTab(tab.id))}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-colors whitespace-nowrap ${
+                isActive
+                  ? "bg-primary-soft text-primary border border-primary/20"
+                  : "text-text-secondary hover:bg-surface-muted"
+              }`}
+            >
+              <Icon className="size-4" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Messages */}
@@ -242,7 +484,7 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
       )}
 
       {/* Tab Panels */}
-      {activeTab === "leaderboard" && (
+      {currentTab === "leaderboard" && (
         <Card>
           <CardHeader>
             <div className="flex flex-col md:flex-row justify-between gap-4">
@@ -340,16 +582,34 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
         </Card>
       )}
 
-      {activeTab === "my-points" && (
+      {currentTab === "point-ledger" && (
         <Card>
           <CardHeader>
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <CardTitle>My Point Ledger</CardTitle>
+                <CardTitle>{derivedRole === "Admin" ? "Point Ledger (Admin View)" : "My Point Ledger"}</CardTitle>
                 <CardDescription>
-                  Your total accumulated points on the volunteer management platform.
+                  {derivedRole === "Admin"
+                    ? "Inspect any volunteer's accumulated points ledger."
+                    : "Your total accumulated points on the volunteer management platform."}
                 </CardDescription>
               </div>
+              
+              {derivedRole === "Admin" && (
+                <div className="w-64 space-y-1">
+                  <label className="block text-xs font-semibold uppercase text-text-secondary">
+                    Inspect Volunteer
+                  </label>
+                  <VolunteerSelect
+                    value={selectedVolPointsId}
+                    onChange={(val) => setSelectedVolPointsId(val)}
+                    volunteers={volunteers}
+                    loading={volunteersLoading}
+                    error={volunteersError}
+                  />
+                </div>
+              )}
+
               <div className="text-right">
                 <p className="text-xs uppercase text-text-secondary font-medium">Total Points</p>
                 <p className="text-3xl font-extrabold text-primary">
@@ -405,20 +665,231 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
               </div>
             ) : (
               <p className="text-center py-6 text-text-secondary">
-                You have not received any points yet. Participate in events and get graded to accumulate points!
+                {derivedRole === "Admin"
+                  ? "This volunteer has not received any points yet."
+                  : "You have not received any points yet. Participate in events and get graded to accumulate points!"}
               </p>
             )}
           </CardContent>
         </Card>
       )}
 
-      {activeTab === "grading" && (
+      {currentTab === "grade-requests" && (
+        <div className="space-y-6">
+          {derivedRole === "Admin" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Submit Grade Request</CardTitle>
+                <CardDescription>
+                  Initiate a grading workflow for a volunteer participating in an event.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setError(null);
+                    setSuccess(null);
+                    try {
+                      const res = await fetch("/api/scoring/grade-requests", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          eventId: reqEventId,
+                          targetUserId: reqTargetUserId,
+                          gradeValue: Number(reqGradeValue),
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.error) throw new Error(data.error);
+                      setSuccess("Grade request submitted successfully!");
+                      fetchGradeRequests();
+                      setReqEventId("");
+                      setReqTargetUserId("");
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Failed to submit request.");
+                    }
+                  }}
+                  className="grid gap-4 md:grid-cols-3 items-end"
+                >
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                      Event Reference / ID
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={reqEventId}
+                      onChange={(e) => setReqEventId(e.target.value)}
+                      placeholder="e.g. MoraForesight 4.0"
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                      Volunteer User
+                    </label>
+                    <VolunteerSelect
+                      value={reqTargetUserId}
+                      onChange={(val) => setReqTargetUserId(val)}
+                      volunteers={volunteers}
+                      loading={volunteersLoading}
+                      error={volunteersError}
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <div className="flex-1">
+                      <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                        Grade Value (0-10)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="10"
+                        required
+                        value={reqGradeValue}
+                        onChange={(e) => setReqGradeValue(Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                      />
+                    </div>
+                    <Button type="submit" className="shrink-0 flex items-center gap-1 mt-5">
+                      <Plus className="size-4" /> Submit
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {derivedRole === "Admin" ? "All Grading Requests" : "Grading Requests for My Events"}
+              </CardTitle>
+              <CardDescription>
+                {derivedRole === "Admin"
+                  ? "Manage and inspect the status of all active volunteer grading workflows."
+                  : "Read-only list of grading requests for events you chair."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const chairEventIds = user.eventRoles
+                  .filter((r) => r.active && r.role === "Chair")
+                  .map((r) => r.eventId);
+
+                const visibleRequests = derivedRole === "Admin"
+                  ? gradeRequests
+                  : gradeRequests.filter((req) => chairEventIds.includes(req.eventId));
+
+                if (visibleRequests.length > 0) {
+                  return (
+                    <div className="space-y-4">
+                      {visibleRequests.map((req) => {
+                        const targetVolName = volunteers.find((v) => v.id === req.targetUserId)?.name || req.targetUserId;
+                        const isChairedByMe = chairEventIds.includes(req.eventId);
+
+                        return (
+                          <div
+                            key={req.$id}
+                            className="p-4 border border-border rounded-lg bg-surface flex flex-col gap-4"
+                          >
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-sm text-text-primary">
+                                    {req.eventId}
+                                  </span>
+                                  <Badge
+                                    tone={
+                                      req.status === "finalized"
+                                        ? "success"
+                                        : req.status === "reviewed"
+                                        ? "primary"
+                                        : "neutral"
+                                    }
+                                  >
+                                    {req.status}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-text-secondary">
+                                  Volunteer: <span className="font-semibold">{targetVolName}</span> | Requested by: {req.requestedBy}
+                                </p>
+                              </div>
+
+                              {/* Actions for Admin only */}
+                              {derivedRole === "Admin" && req.status !== "finalized" && (
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="primary"
+                                    onClick={async () => {
+                                      setError(null);
+                                      setSuccess(null);
+                                      try {
+                                        const res = await fetch("/api/scoring/grades", {
+                                          method: "POST",
+                                          body: JSON.stringify({ gradeRequestId: req.$id }),
+                                        });
+                                        const data = await res.json();
+                                        if (data.error) throw new Error(data.error);
+                                        setSuccess("Grading finalized and points awarded!");
+                                        fetchGradeRequests();
+                                      } catch (err) {
+                                        setError(err instanceof Error ? err.message : "Failed to finalize grade.");
+                                      }
+                                    }}
+                                  >
+                                    Approve (Finalize)
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() => handleDeleteRequest(req.$id)}
+                                  >
+                                    Reject (Delete)
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Warning & disabled inputs if Chairperson of event */}
+                            {derivedRole === "Chairperson" && isChairedByMe && (
+                              <div className="space-y-3">
+                                <div className="p-3 text-sm text-yellow-800 bg-yellow-50 border border-yellow-200 rounded-md font-medium">
+                                  You are the chair of this event and cannot submit a grade review for it.
+                                </div>
+                                <div className="flex flex-wrap gap-2 items-center opacity-50 pointer-events-none">
+                                  <input
+                                    type="number"
+                                    placeholder="Grade"
+                                    disabled
+                                    className="w-16 px-2 py-1 border border-border rounded text-sm bg-surface"
+                                  />
+                                  <Button variant="secondary" disabled>
+                                    Submit Review
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                } else {
+                  return <p className="text-center py-6 text-text-secondary">No grading requests found.</p>;
+                }
+              })()}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {currentTab === "grade-reviews" && derivedRole === "Admin" && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Submit Grade Request</CardTitle>
+              <CardTitle>Submit Grade Review</CardTitle>
               <CardDescription>
-                Event Chairs and Leads can submit grades for volunteers under their event. (Chairs cannot grade their own event).
+                Submit or update a grade review for an open request.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -428,262 +899,363 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
                   setError(null);
                   setSuccess(null);
                   try {
-                    const res = await fetch("/api/scoring/grade-requests", {
-                      method: "POST",
-                      body: JSON.stringify({
-                        eventId: reqEventId,
-                        targetUserId: reqTargetUserId,
-                        gradeValue: Number(reqGradeValue),
-                      }),
+                    const res = await fetch(`/api/scoring/grade-requests/${revRequestId}`, {
+                      method: "PATCH",
+                      body: JSON.stringify({ gradeValue: revGradeValue }),
                     });
                     const data = await res.json();
                     if (data.error) throw new Error(data.error);
-                    setSuccess("Grade request submitted successfully!");
+                    setSuccess("Grade review submitted!");
                     fetchGradeRequests();
+                    await fetchDetailedReviews();
                   } catch (err) {
-                    setError(err instanceof Error ? err.message : "Failed to submit request.");
+                    setError(err instanceof Error ? err.message : "Failed to submit review.");
                   }
                 }}
                 className="grid gap-4 md:grid-cols-3 items-end"
               >
                 <div>
                   <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    Event Reference / ID
+                    Select Open Request
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    value={reqEventId}
-                    onChange={(e) => setReqEventId(e.target.value)}
-                    placeholder="e.g. MoraForesight 4.0"
+                    value={revRequestId}
+                    onChange={(e) => setRevRequestId(e.target.value)}
                     className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                  />
+                  >
+                    <option value="">-- Choose Request --</option>
+                    {gradeRequests
+                      .filter((r) => r.status !== "finalized")
+                      .map((r) => {
+                        const targetName = volunteers.find((v) => v.id === r.targetUserId)?.name || r.targetUserId;
+                        return (
+                          <option key={r.$id} value={r.$id}>
+                            {r.eventId} - {targetName}
+                          </option>
+                        );
+                      })}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    Volunteer User ID
+                    Grade Value (0-10)
                   </label>
                   <input
-                    type="text"
+                    type="number"
+                    min="0"
+                    max="10"
                     required
-                    value={reqTargetUserId}
-                    onChange={(e) => setReqTargetUserId(e.target.value)}
-                    placeholder="e.g. 6a22aee6ee323"
+                    value={revGradeValue}
+                    onChange={(e) => setRevGradeValue(Number(e.target.value))}
                     className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
                   />
                 </div>
-                <div className="flex gap-2 items-center">
-                  <div className="flex-1">
-                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                      Grade Value (0-10)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      required
-                      value={reqGradeValue}
-                      onChange={(e) => setReqGradeValue(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                    />
-                  </div>
-                  <Button type="submit" className="shrink-0 flex items-center gap-1 mt-5">
-                    <Plus className="size-4" /> Submit
-                  </Button>
-                </div>
+                <Button type="submit" className="w-full">
+                  Submit Review
+                </Button>
               </form>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Active Grading Requests</CardTitle>
+              <CardTitle>Grade Reviews Log</CardTitle>
               <CardDescription>
-                Reviews and status logs of open volunteer grading workflows.
+                Audit history of all reviewer grade contributions.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {gradeRequests.length > 0 ? (
-                <div className="space-y-4">
-                  {gradeRequests.map((req) => (
-                    <div
-                      key={req.$id}
-                      className="p-4 border border-border rounded-lg bg-surface flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-text-primary">
-                            {req.eventId}
-                          </span>
-                          <Badge
-                            tone={
-                              req.status === "finalized"
-                                ? "success"
-                                : req.status === "reviewed"
-                                ? "primary"
-                                : "neutral"
+              {reviewsLoading ? (
+                <div className="text-center py-6 text-text-secondary">Loading reviews...</div>
+              ) : detailedReviews.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-border text-left text-sm">
+                    <thead className="text-text-secondary">
+                      <tr>
+                        <th className="py-2 pr-4 font-semibold">Event</th>
+                        <th className="px-4 py-2 font-semibold">Volunteer Name</th>
+                        <th className="px-4 py-2 font-semibold">Reviewer</th>
+                        <th className="px-4 py-2 font-semibold text-center">Grade</th>
+                        <th className="px-4 py-2 font-semibold">Submitted At</th>
+                        <th className="px-4 py-2 font-semibold">Audit Overrides</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {detailedReviews.map((rev) => {
+                        let auditHistory: string[] = [];
+                        if (rev.audit_metadata) {
+                          try {
+                            const parsed = JSON.parse(rev.audit_metadata);
+                            if (Array.isArray(parsed)) {
+                              auditHistory = parsed.map(
+                                (entry: GradeAuditEntry) =>
+                                  `Changed from ${entry.originalValue} to ${entry.newValue} by ${entry.changedBy} on ${new Date(entry.changedAt).toLocaleDateString()} (Reason: ${entry.reason || "None"})`
+                              );
                             }
-                          >
-                            {req.status}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-text-secondary">
-                          Volunteer ID: <span className="font-mono">{req.targetUserId}</span> | Requested by: {req.requestedBy}
-                        </p>
-                      </div>
+                          } catch {}
+                        }
 
-                      {/* Review & Finalize actions */}
-                      {req.status !== "finalized" && (
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <input
-                            type="number"
-                            placeholder="Grade"
-                            min="0"
-                            max="10"
-                            className="w-16 px-2 py-1 border border-border rounded text-sm bg-surface"
-                            onChange={(e) => {
-                              setRevRequestId(req.$id);
-                              setRevGradeValue(Number(e.target.value));
-                            }}
-                          />
-                          <Button
-                            variant="secondary"
-                            onClick={async () => {
-                              setError(null);
-                              setSuccess(null);
-                              try {
-                                const targetId = revRequestId || req.$id;
-                                const res = await fetch(`/api/scoring/grade-requests/${targetId}`, {
-                                  method: "PATCH",
-                                  body: JSON.stringify({ gradeValue: revGradeValue }),
-                                });
-                                const data = await res.json();
-                                if (data.error) throw new Error(data.error);
-                                setSuccess("Grade review submitted!");
-                                fetchGradeRequests();
-                              } catch (err) {
-                                setError(err instanceof Error ? err.message : "Failed to submit review.");
-                              }
-                            }}
-                          >
-                            Submit Review
-                          </Button>
-                          <Button
-                            variant="primary"
-                            onClick={async () => {
-                              setError(null);
-                              setSuccess(null);
-                              try {
-                                const res = await fetch("/api/scoring/grades", {
-                                  method: "POST",
-                                  body: JSON.stringify({ gradeRequestId: req.$id }),
-                                });
-                                const data = await res.json();
-                                if (data.error) throw new Error(data.error);
-                                setSuccess("Grading finalized and points awarded!");
-                                fetchGradeRequests();
-                              } catch (err) {
-                                setError(err instanceof Error ? err.message : "Failed to finalize grade.");
-                              }
-                            }}
-                          >
-                            Finalize
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        return (
+                          <tr key={rev.$id}>
+                            <td className="py-3 pr-4 font-medium text-text-primary">{rev.eventId}</td>
+                            <td className="px-4 py-3 text-text-primary">{rev.volunteerName}</td>
+                            <td className="px-4 py-3 text-text-secondary">{rev.reviewerName}</td>
+                            <td className="px-4 py-3 text-center font-bold text-text-primary">{rev.gradeValue} / 10</td>
+                            <td className="px-4 py-3 text-text-secondary">
+                              {new Date(rev.submittedAt).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-text-muted">
+                              {auditHistory.length > 0 ? (
+                                <ul className="list-disc pl-4 space-y-0.5">
+                                  {auditHistory.map((item, idx) => (
+                                    <li key={idx}>{item}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                "No overrides"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               ) : (
-                <p className="text-center py-6 text-text-secondary">No grading requests found.</p>
+                <p className="text-center py-6 text-text-secondary">No reviews found.</p>
               )}
             </CardContent>
           </Card>
         </div>
       )}
 
-      {activeTab === "participation" && (
+      {currentTab === "finalize-grades" && derivedRole === "Admin" && (
         <Card>
           <CardHeader>
-            <CardTitle>Manage Participation Records</CardTitle>
+            <CardTitle>Finalize Grades</CardTitle>
             <CardDescription>
-              Assign volunteer participation status and role for your event.
+              Averages reviews and assigns final points ledger entries.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Create participation wrapper endpoint calling server action or route endpoint */}
-            <form
-              onSubmit={handleParticipationSubmit}
-              className="space-y-4 max-w-md"
-            >
-              <div>
-                <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                  Volunteer User ID
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={partUserId}
-                  onChange={(e) => setPartUserId(e.target.value)}
-                  placeholder="e.g. 6a22aee6ee323"
-                  className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                />
+            {gradeRequests.filter((r) => r.status !== "finalized").length > 0 ? (
+              <div className="space-y-4">
+                {gradeRequests
+                  .filter((r) => r.status !== "finalized")
+                  .map((req) => {
+                    const targetName = volunteers.find((v) => v.id === req.targetUserId)?.name || req.targetUserId;
+                    return (
+                      <div
+                        key={req.$id}
+                        className="p-4 border border-border rounded-lg bg-surface flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+                      >
+                        <div>
+                          <p className="font-semibold text-sm text-text-primary">{req.eventId}</p>
+                          <p className="text-xs text-text-secondary">
+                            Volunteer: <span className="font-semibold">{targetName}</span> | Current Status: <span className="font-mono">{req.status}</span>
+                          </p>
+                        </div>
+                        <Button
+                          variant="primary"
+                          onClick={async () => {
+                            setError(null);
+                            setSuccess(null);
+                            try {
+                              const res = await fetch("/api/scoring/grades", {
+                                method: "POST",
+                                body: JSON.stringify({ gradeRequestId: req.$id }),
+                              });
+                              const data = await res.json();
+                              if (data.error) throw new Error(data.error);
+                              setSuccess("Grading finalized and points awarded!");
+                              fetchGradeRequests();
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : "Failed to finalize grade.");
+                            }
+                          }}
+                        >
+                          Finalize Grade
+                        </Button>
+                      </div>
+                    );
+                  })}
               </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                  Event Reference / ID
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={partEventId}
-                  onChange={(e) => setPartEventId(e.target.value)}
-                  placeholder="e.g. MoraForesight 4.0"
-                  className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    Role In Event
-                  </label>
-                  <select
-                    value={partRole}
-                    onChange={(e) => setPartRole(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                  >
-                    <option value="Chair">Chair</option>
-                    <option value="Vice Chair">Vice Chair</option>
-                    <option value="Committee Lead">Committee Lead</option>
-                    <option value="Committee Member">Committee Member</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={partStatus}
-                    onChange={(e) =>
-                      setPartStatus(e.target.value as "attended" | "absent" | "excused")
-                    }
-                    className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                  >
-                    <option value="attended">Attended</option>
-                    <option value="absent">Absent</option>
-                    <option value="excused">Excused</option>
-                  </select>
-                </div>
-              </div>
-              <Button type="submit" className="w-full">
-                Upsert Record
-              </Button>
-            </form>
+            ) : (
+              <p className="text-center py-6 text-text-secondary">No requests ready to finalize.</p>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {activeTab === "admin" && (
+      {currentTab === "participation" && (
+        <div className="space-y-6">
+          {derivedRole !== "Member" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Manage Participation Records</CardTitle>
+                <CardDescription>
+                  Assign volunteer participation status and role for your event.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setError(null);
+                    setSuccess(null);
+                    try {
+                      await upsertParticipationRecord({
+                        userId: partUserId,
+                        eventId: partEventId,
+                        role: partRole,
+                        status: partStatus,
+                      });
+                      setSuccess("Participation record recorded successfully!");
+                      setPartUserId("");
+                      setPartEventId("");
+                      fetchParticipationRecords();
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Failed to upsert participation.");
+                    }
+                  }}
+                  className="space-y-4 max-w-md"
+                >
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                      Volunteer User
+                    </label>
+                    <VolunteerSelect
+                      value={partUserId}
+                      onChange={(val) => setPartUserId(val)}
+                      volunteers={volunteers}
+                      loading={volunteersLoading}
+                      error={volunteersError}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                      Event Reference / ID
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={partEventId}
+                      onChange={(e) => setPartEventId(e.target.value)}
+                      placeholder="e.g. MoraForesight 4.0"
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                        Role In Event
+                      </label>
+                      <select
+                        value={partRole}
+                        onChange={(e) => setPartRole(e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                      >
+                        <option value="Chair">Chair</option>
+                        <option value="Vice Chair">Vice Chair</option>
+                        <option value="Committee Lead">Committee Lead</option>
+                        <option value="Committee Member">Committee Member</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                        Status
+                      </label>
+                      <select
+                        value={partStatus}
+                        onChange={(e) =>
+                          setPartStatus(e.target.value as "attended" | "absent" | "excused")
+                        }
+                        className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                      >
+                        <option value="attended">Attended</option>
+                        <option value="absent">Absent</option>
+                        <option value="excused">Excused</option>
+                      </select>
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full">
+                    Upsert Record
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {derivedRole === "Admin"
+                  ? "Volunteer Participation Records"
+                  : derivedRole === "Chairperson"
+                  ? "Event Participation Tracking"
+                  : "My Event Participation"}
+              </CardTitle>
+              <CardDescription>
+                {derivedRole === "Admin"
+                  ? "All volunteer participation records recorded on the platform."
+                  : derivedRole === "Chairperson"
+                  ? "Participation logs for events you chair and your own records."
+                  : "Status of your event attendance and assigned roles."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {participationRecords.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-border text-left text-sm">
+                    <thead className="text-text-secondary">
+                      <tr>
+                        <th className="py-2 pr-4 font-semibold">Event</th>
+                        <th className="px-4 py-2 font-semibold">Volunteer Name</th>
+                        <th className="px-4 py-2 font-semibold">Role</th>
+                        <th className="px-4 py-2 font-semibold">Status</th>
+                        <th className="px-4 py-2 font-semibold text-right">Last Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {participationRecords.map((record) => {
+                        const volunteerName = volunteers.find((v) => v.id === record.userId)?.name || record.userId;
+                        return (
+                          <tr key={record.$id}>
+                            <td className="py-3 pr-4 font-medium text-text-primary">{record.eventId}</td>
+                            <td className="px-4 py-3 text-text-primary">{volunteerName}</td>
+                            <td className="px-4 py-3 text-text-secondary">{record.role}</td>
+                            <td className="px-4 py-3">
+                              <Badge
+                                tone={
+                                  record.status === "attended"
+                                    ? "success"
+                                    : record.status === "absent"
+                                    ? "warning"
+                                    : "neutral"
+                                }
+                              >
+                                {record.status}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right text-text-secondary">
+                              {new Date(record.updatedAt).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-center py-6 text-text-secondary">No participation records found.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {currentTab === "admin-tools" && derivedRole === "Admin" && (
         <div className="grid gap-6 md:grid-cols-2">
           {/* Admin override panel */}
           <Card>
@@ -711,6 +1283,9 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
                     const data = await res.json();
                     if (data.error) throw new Error(data.error);
                     setSuccess("Grade overridden and audit ledger recorded!");
+                    setOverReviewId("");
+                    setOverReason("");
+                    await fetchDetailedReviews();
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Override failed.");
                   }
@@ -719,16 +1294,27 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
               >
                 <div>
                   <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    Grade Review ID
+                    Select Grade Review
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
                     value={overReviewId}
-                    onChange={(e) => setOverReviewId(e.target.value)}
-                    placeholder="e.g. 6a22aee6ee323"
+                    onChange={(e) => {
+                      setOverReviewId(e.target.value);
+                      const rev = detailedReviews.find((r) => r.$id === e.target.value);
+                      if (rev) {
+                        setOverGradeValue(rev.gradeValue);
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                  />
+                  >
+                    <option value="">-- Choose Review to Override --</option>
+                    {detailedReviews.map((rev) => (
+                      <option key={rev.$id} value={rev.$id}>
+                        {rev.eventId} - {rev.volunteerName} (Reviewer: {rev.reviewerName}, Score: {rev.gradeValue})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
@@ -786,6 +1372,8 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
                       reason: exReason,
                     });
                     setSuccess("Exclusion settings updated successfully!");
+                    setExUserId("");
+                    setExReason("");
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Failed to update exclusion.");
                   }
@@ -794,15 +1382,14 @@ export function ScoringDashboard({ user }: { user: SessionUser }) {
               >
                 <div>
                   <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                    Volunteer User ID
+                    Select Volunteer
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <VolunteerSelect
                     value={exUserId}
-                    onChange={(e) => setExUserId(e.target.value)}
-                    placeholder="e.g. 6a22aee6ee323"
-                    className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                    onChange={(val) => setExUserId(val)}
+                    volunteers={volunteers}
+                    loading={volunteersLoading}
+                    error={volunteersError}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">

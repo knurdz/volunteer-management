@@ -7,10 +7,11 @@ import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { writeAuditLog } from "@/server/audit";
 import { requireAuth, requireAdmin } from "@/features/access-control/server/current-user";
+import { listProfiles } from "@/features/access-control/server/profiles";
 import { hasEventRole } from "@/features/access-control/lib/rules";
 import { ROLE_BASE_POINTS } from "@/lib/config";
 import { getServerEnv } from "@/lib/env";
-import type { AuditAction } from "@/features/access-control/types";
+import type { AuditAction, Profile } from "@/features/access-control/types";
 
 import {
   calculateAverageGrade,
@@ -784,4 +785,134 @@ export async function getLeaderboard(params: {
 
   // Sort descending by points
   return leaderboard.sort((a, b) => b.points - a.points);
+}
+
+/**
+ * Lists all volunteer profiles as simple ID and name pairs for dropdown selection.
+ */
+export async function listVolunteers() {
+  await requireAuth();
+  const profiles = await listProfiles();
+  return profiles.map((p) => ({
+    id: p.$id,
+    name: p.name || "Unknown Volunteer",
+  }));
+}
+
+/**
+ * Retrieves and scopes participation records based on caller's role.
+ */
+export async function listParticipationRecords() {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  const user = await requireAuth();
+
+  const result = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.participationRecords,
+    [Query.limit(500), Query.orderDesc("updatedAt")]
+  );
+
+  const rows = JSON.parse(JSON.stringify(result.rows)) as ParticipationRecord[];
+
+  if (user.isAdmin) {
+    return rows;
+  }
+
+  const chairEventIds = user.eventRoles
+    .filter((r) => r.active && r.role === "Chair")
+    .map((r) => r.eventId);
+
+  return rows.filter((row) => {
+    const isOwn = row.userId === user.authUser.id;
+    const isChairedEvent = chairEventIds.includes(row.eventId);
+    return isOwn || isChairedEvent;
+  });
+}
+
+/**
+ * Lists all grade reviews with detailed volunteer and reviewer names. Admin-only.
+ */
+export async function listDetailedReviews() {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  await requireAdmin();
+
+  const [reviewsResult, requestsResult, profilesResult] = await Promise.all([
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.gradeReviews,
+      [Query.limit(500), Query.orderDesc("submittedAt")]
+    ),
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.gradeRequests,
+      [Query.limit(500)]
+    ),
+    tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.profiles,
+      [Query.limit(500)]
+    ),
+  ]);
+
+  const reviews = reviewsResult.rows as unknown as GradeReview[];
+  const requests = requestsResult.rows as unknown as GradeRequest[];
+  const profiles = profilesResult.rows as unknown as Profile[];
+
+  const requestMap = new Map(requests.map((r) => [r.requestId, r]));
+  const profileMap = new Map(profiles.map((p) => [p.$id, p]));
+
+  return reviews.map((rev) => {
+    const req = requestMap.get(rev.gradeRequestId);
+    const targetUserId = req?.targetUserId || "";
+    const eventId = req?.eventId || "";
+    const volunteerName = profileMap.get(targetUserId)?.name || "Unknown Volunteer";
+    const reviewerName = profileMap.get(rev.reviewerId)?.name || "Unknown Reviewer";
+
+    return {
+      $id: rev.$id,
+      gradeRequestId: rev.gradeRequestId,
+      reviewerId: rev.reviewerId,
+      reviewerName,
+      volunteerName,
+      eventId,
+      gradeValue: rev.gradeValue,
+      submittedAt: rev.submittedAt,
+      audit_metadata: rev.audit_metadata,
+    };
+  });
+}
+
+/**
+ * Deletes/rejects a grade request and its corresponding reviews. Admin-only.
+ */
+export async function deleteGradeRequest(gradeRequestId: string) {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  await requireAdmin();
+
+  z.string().min(1).parse(gradeRequestId);
+
+  // Delete reviews first
+  const reviewsResult = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.gradeReviews,
+    [Query.equal("gradeRequestId", gradeRequestId), Query.limit(100)]
+  );
+
+  for (const review of reviewsResult.rows) {
+    await tables.deleteRow(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.gradeReviews,
+      review.$id
+    );
+  }
+
+  // Delete request
+  await tables.deleteRow(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.gradeRequests,
+    gradeRequestId
+  );
 }

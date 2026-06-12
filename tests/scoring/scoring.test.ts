@@ -16,12 +16,22 @@ import {
   finalizeGrade,
   adminOverrideGrade,
   submitGradeReview,
+  listVolunteers,
+  listParticipationRecords,
+  listDetailedReviews,
+  deleteGradeRequest,
 } from "../../src/features/scoring/server/actions";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { requireAuth, requireAdmin } from "@/features/access-control/server/current-user";
+import { listProfiles } from "@/features/access-control/server/profiles";
+import type { Profile } from "@/features/access-control/types";
 import { hasEventRole } from "@/features/access-control/lib/rules";
 import { writeAuditLog } from "@/server/audit";
 import type { TablesDB } from "node-appwrite";
+
+vi.mock("@/features/access-control/server/profiles", () => ({
+  listProfiles: vi.fn(),
+}));
 
 // Mocks
 vi.mock("@/server/appwrite", () => ({
@@ -594,5 +604,182 @@ describe("Scoring Server Actions & Access Control", () => {
         source: "role",
       })
     );
+  });
+});
+
+describe("Scoring New Gated Actions & Helper Actions", () => {
+  type MockTables = {
+    listRows: ReturnType<typeof vi.fn>;
+    getRow: ReturnType<typeof vi.fn>;
+    createRow: ReturnType<typeof vi.fn>;
+    updateRow: ReturnType<typeof vi.fn>;
+    deleteRow: ReturnType<typeof vi.fn>;
+  };
+  let mockTables: MockTables;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+
+    mockTables = {
+      listRows: vi.fn(),
+      getRow: vi.fn(),
+      createRow: vi.fn(),
+      updateRow: vi.fn(),
+      deleteRow: vi.fn().mockResolvedValue({}),
+    };
+
+    vi.mocked(getAppwriteAdminServices).mockReturnValue({
+      tables: mockTables as unknown as TablesDB,
+    } as unknown as ReturnType<typeof getAppwriteAdminServices>);
+  });
+
+  it("listVolunteers fetches and maps profiles to volunteer options", async () => {
+    vi.mocked(requireAuth).mockResolvedValue({
+      authUser: { id: "user-1", name: "User 1", email: "user1@uom.lk" },
+      profile: { $id: "user-1", authUserId: "user-1", googleEmail: "user1@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: false,
+      sbRoles: [],
+      eventRoles: [],
+    });
+
+    vi.mocked(listProfiles).mockResolvedValue([
+      { $id: "vol-1", authUserId: "vol-1", googleEmail: "vol1@uom.lk", name: "John Doe", uomVerified: true, status: "ACTIVE" },
+      { $id: "vol-2", authUserId: "vol-2", googleEmail: "vol2@uom.lk", name: "Jane Smith", uomVerified: true, status: "ACTIVE" },
+    ] as Profile[]);
+
+    const result = await listVolunteers();
+    expect(result).toEqual([
+      { id: "vol-1", name: "John Doe" },
+      { id: "vol-2", name: "Jane Smith" },
+    ]);
+  });
+
+  it("listParticipationRecords scopes records by role: Admin sees all", async () => {
+    vi.mocked(requireAuth).mockResolvedValue({
+      authUser: { id: "admin-1", name: "Admin", email: "admin@uom.lk" },
+      profile: { $id: "admin-1", authUserId: "admin-1", googleEmail: "admin@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: true,
+      sbRoles: ["ExCom"],
+      eventRoles: [],
+    });
+
+    mockTables.listRows.mockResolvedValue({
+      total: 3,
+      rows: [
+        { $id: "pr-1", userId: "vol-1", eventId: "event-1", role: "Chair", status: "attended" },
+        { $id: "pr-2", userId: "vol-2", eventId: "event-2", role: "Committee Member", status: "attended" },
+        { $id: "pr-3", userId: "vol-3", eventId: "event-3", role: "Committee Lead", status: "absent" },
+      ],
+    });
+
+    const result = await listParticipationRecords();
+    expect(result.length).toBe(3);
+  });
+
+  it("listParticipationRecords scopes records by role: Chairperson sees chaired events and own records", async () => {
+    vi.mocked(requireAuth).mockResolvedValue({
+      authUser: { id: "chair-1", name: "Chair User", email: "chair@uom.lk" },
+      profile: { $id: "chair-1", authUserId: "chair-1", googleEmail: "chair@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: false,
+      sbRoles: [],
+      eventRoles: [
+        {
+          $id: "r-1",
+          userId: "chair-1",
+          eventId: "event-1",
+          eventTitle: "Event One",
+          role: "Chair",
+          assignedBy: "admin",
+          assignedAt: "2026-01-01T00:00:00.000Z",
+          active: true,
+        },
+      ],
+    });
+
+    mockTables.listRows.mockResolvedValue({
+      total: 3,
+      rows: [
+        { $id: "pr-1", userId: "vol-1", eventId: "event-1", role: "Committee Member", status: "attended" }, // chaired event record
+        { $id: "pr-2", userId: "vol-2", eventId: "event-2", role: "Committee Member", status: "attended" }, // different event record
+        { $id: "pr-3", userId: "chair-1", eventId: "event-2", role: "Committee Lead", status: "attended" }, // own record in different event
+      ],
+    });
+
+    const result = await listParticipationRecords();
+    expect(result.length).toBe(2);
+    expect(result.map(r => r.$id)).toContain("pr-1");
+    expect(result.map(r => r.$id)).toContain("pr-3");
+    expect(result.map(r => r.$id)).not.toContain("pr-2");
+  });
+
+  it("listDetailedReviews returns combined reviews data for Admin", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue({
+      authUser: { id: "admin-1", name: "Admin", email: "admin@uom.lk" },
+      profile: { $id: "admin-1", authUserId: "admin-1", googleEmail: "admin@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: true,
+      sbRoles: [],
+      eventRoles: [],
+    });
+
+    mockTables.listRows.mockImplementation((db, table) => {
+      if (table === "grade_reviews") {
+        return Promise.resolve({
+          total: 1,
+          rows: [
+            { $id: "rev-1", gradeRequestId: "request-1", reviewerId: "reviewer-1", gradeValue: 9, submittedAt: "2026-06-01" },
+          ],
+        });
+      }
+      if (table === "grade_requests") {
+        return Promise.resolve({
+          total: 1,
+          rows: [
+            { requestId: "request-1", eventId: "event-1", targetUserId: "vol-1" },
+          ],
+        });
+      }
+      if (table === "profiles") {
+        return Promise.resolve({
+          total: 2,
+          rows: [
+            { $id: "vol-1", name: "John Doe" },
+            { $id: "reviewer-1", name: "Jane Reviewer" },
+          ],
+        });
+      }
+      return Promise.resolve({ total: 0, rows: [] });
+    });
+
+    const result = await listDetailedReviews();
+    expect(result[0]).toEqual(expect.objectContaining({
+      volunteerName: "John Doe",
+      reviewerName: "Jane Reviewer",
+      eventId: "event-1",
+      gradeValue: 9,
+    }));
+  });
+
+  it("deleteGradeRequest removes grade request and its corresponding reviews", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue({
+      authUser: { id: "admin-1", name: "Admin", email: "admin@uom.lk" },
+      profile: { $id: "admin-1", authUserId: "admin-1", googleEmail: "admin@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: true,
+      sbRoles: [],
+      eventRoles: [],
+    });
+
+    mockTables.listRows.mockResolvedValue({
+      total: 2,
+      rows: [
+        { $id: "rev-1", gradeRequestId: "req-1" },
+        { $id: "rev-2", gradeRequestId: "req-1" },
+      ],
+    });
+
+    await deleteGradeRequest("req-1");
+
+    expect(mockTables.deleteRow).toHaveBeenCalledWith("database-1", "grade_reviews", "rev-1");
+    expect(mockTables.deleteRow).toHaveBeenCalledWith("database-1", "grade_reviews", "rev-2");
+    expect(mockTables.deleteRow).toHaveBeenCalledWith("database-1", "grade_requests", "req-1");
   });
 });
