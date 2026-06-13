@@ -11,6 +11,12 @@ export const EVENT_STATUSES = [
   "CLOSED",
 ] as const;
 
+/** Canonical IEEE year terms from Core System Settings. */
+export const IEEE_TERMS = ["2024/2025", "2025/2026", "2026/2027"] as const;
+
+export const EVENT_YEAR_MIN = 2000;
+export const EVENT_YEAR_MAX = 2100;
+
 export const SB_ROLES = ["ExCom", "SB Lead", "SB Member"] as const;
 
 export const EVENT_ROLES = [

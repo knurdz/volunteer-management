@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import {
   canCreateEvent,
   parseEventStatus,
   parseValidationBody,
+  requireEventCreator,
 } from "@/features/events/server/event-route-helpers";
 import { createEvent, getEvents } from "@/features/events/server/event-service";
 import { CreateEventInputSchema } from "@/features/events/types";
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     return jsonError("Authentication required.", 401);
   }
 
-  if (!user.isAdmin && !canVolunteer(user.profile)) {
+  if (!user.isAdmin && !canCreateEvent(user)) {
     return jsonError("Verified UoM email is required before volunteering.", 403);
   }
 
@@ -52,13 +52,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
+  const authError = requireEventCreator(user);
 
-  if (!user) {
-    return jsonError("Authentication required.", 401);
-  }
-
-  if (!canCreateEvent(user)) {
-    return jsonError("Required Student Branch role is missing.", 403);
+  if (authError) {
+    return authError;
   }
 
   const parsed = parseValidationBody(CreateEventInputSchema, await request.json());
@@ -68,8 +65,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const event = await createEvent(parsed.data, user.authUser.id, {
-      isAdmin: user.isAdmin,
+    const event = await createEvent(parsed.data, user!.authUser.id, {
+      isAdmin: user!.isAdmin,
     });
     return NextResponse.json({ event }, { status: 201 });
   } catch (error) {

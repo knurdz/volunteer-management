@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { EventRole } from "@/features/access-control/types";
 import type { Event, EventPermissions, EventStatus } from "@/features/events/types";
 

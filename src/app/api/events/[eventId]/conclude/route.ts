@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import {
-  getEventUserContext,
   getPermissionsForUser,
-  isEventVisible,
   parseValidationBody,
+  requireVerifiedVolunteer,
+  requireVisibleEvent,
 } from "@/features/events/server/event-route-helpers";
 import {
   approveConclusion,
-  getEventById,
   rejectConclusion,
   submitConclusion,
 } from "@/features/events/server/event-service";
@@ -22,13 +20,10 @@ type RouteContext = {
 
 export async function PATCH(request: Request, context: RouteContext) {
   const user = await getCurrentUser();
+  const authError = requireVerifiedVolunteer(user);
 
-  if (!user) {
-    return jsonError("Authentication required.", 401);
-  }
-
-  if (!user.isAdmin && !canVolunteer(user.profile)) {
-    return jsonError("Verified UoM email is required before volunteering.", 403);
+  if (authError) {
+    return authError;
   }
 
   const { eventId } = await context.params;
@@ -39,19 +34,8 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const existingEvent = await getEventById(eventId);
-
-    if (!existingEvent) {
-      return jsonError("Event was not found.", 404);
-    }
-
-    const { userEventRole } = await getEventUserContext(eventId, user);
-
-    if (!isEventVisible(user, existingEvent, userEventRole)) {
-      return jsonError("Event was not found.", 404);
-    }
-
-    const permissions = getPermissionsForUser(user, existingEvent, userEventRole);
+    const { event, userEventRole } = await requireVisibleEvent(eventId, user!);
+    const permissions = getPermissionsForUser(user!, event, userEventRole);
     const { action } = parsed.data;
 
     if (action === "submit") {
@@ -59,8 +43,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         throw new ForbiddenError("You do not have permission to submit the conclusion.");
       }
 
-      const event = await submitConclusion(eventId, user.authUser.id);
-      return NextResponse.json({ event });
+      const updatedEvent = await submitConclusion(eventId, user!.authUser.id);
+      return NextResponse.json({ event: updatedEvent });
     }
 
     if (action === "approve") {
@@ -68,8 +52,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         throw new ForbiddenError("You do not have permission to approve the conclusion.");
       }
 
-      const event = await approveConclusion(eventId, user.authUser.id);
-      return NextResponse.json({ event });
+      const updatedEvent = await approveConclusion(eventId, user!.authUser.id);
+      return NextResponse.json({ event: updatedEvent });
     }
 
     if (action === "reject") {
@@ -77,8 +61,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         throw new ForbiddenError("You do not have permission to reject the conclusion.");
       }
 
-      const event = await rejectConclusion(eventId, user.authUser.id);
-      return NextResponse.json({ event });
+      const updatedEvent = await rejectConclusion(eventId, user!.authUser.id);
+      return NextResponse.json({ event: updatedEvent });
     }
 
     return jsonError("Invalid conclusion action.", 400);

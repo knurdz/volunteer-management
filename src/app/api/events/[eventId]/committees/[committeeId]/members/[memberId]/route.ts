@@ -3,13 +3,14 @@ import { getCurrentUser } from "@/features/access-control/server/current-user";
 import { canManageStructuralCommittees } from "@/features/events/lib/committee-permissions";
 import { requireVerifiedVolunteer, requireVisibleEvent } from "@/features/events/server/event-route-helpers";
 import {
-  deleteCommittee,
   getCommitteeById,
+  listCommitteeMembers,
+  removeCommitteeMember,
 } from "@/features/events/server/committees.server";
 import { ForbiddenError, jsonError, routeErrorStatus } from "@/server/errors";
 
 type RouteContext = {
-  params: Promise<{ committeeId: string; eventId: string }>;
+  params: Promise<{ committeeId: string; eventId: string; memberId: string }>;
 };
 
 export async function DELETE(_request: Request, context: RouteContext) {
@@ -20,7 +21,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return authError;
   }
 
-  const { committeeId, eventId } = await context.params;
+  const { committeeId, eventId, memberId } = await context.params;
 
   try {
     const { userEventRole } = await requireVisibleEvent(eventId, user!);
@@ -39,11 +40,24 @@ export async function DELETE(_request: Request, context: RouteContext) {
       throw new ForbiddenError("You do not have permission to manage committees.");
     }
 
-    await deleteCommittee(committeeId, user!.authUser.id);
+    const members = await listCommitteeMembers(committeeId);
+    const member = members.find((entry) => entry.$id === memberId);
+
+    if (!member) {
+      return jsonError("Committee member was not found.", 404);
+    }
+
+    await removeCommitteeMember({
+      actorUserId: user!.authUser.id,
+      committeeId,
+      memberId,
+      userId: member.user_id,
+    });
+
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Failed to delete committee.",
+      error instanceof Error ? error.message : "Failed to remove committee member.",
       routeErrorStatus(error),
     );
   }

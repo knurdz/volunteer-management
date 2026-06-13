@@ -39,6 +39,15 @@ vi.mock("@/features/events/server/event-audit", () => ({
   safeEventAuditLog: vi.fn(),
 }));
 
+vi.mock("@/features/events/server/committees.server", () => ({
+  createCommittee: vi.fn().mockResolvedValue({
+    $id: "committee-general",
+    name: "General",
+  }),
+  deleteCommittee: vi.fn(),
+  listCommitteesForEvent: vi.fn().mockResolvedValue([]),
+}));
+
 function createEventFixture(overrides: Partial<Event> = {}): Event {
   return {
     $createdAt: "2026-01-01T00:00:00.000Z",
@@ -50,7 +59,7 @@ function createEventFixture(overrides: Partial<Event> = {}): Event {
     reference: "MF-4",
     start_date: "2026-06-01T00:00:00.000Z",
     status: "draft",
-    term: "Summer",
+    term: "2025/2026",
     title: "MoraForesight 4.0",
     updated_at: "2026-01-01T00:00:00.000Z",
     year: 2026,
@@ -174,6 +183,9 @@ describe("isEventVisibleToUser", () => {
     ).toBe(false);
     expect(
       isEventVisibleToUser(userId, false, createEventFixture({ status: "planning" })),
+    ).toBe(false);
+    expect(
+      isEventVisibleToUser(userId, false, createEventFixture({ status: "closed" })),
     ).toBe(false);
   });
 });
@@ -303,7 +315,7 @@ describe("event service operations", () => {
       {
         reference: "MF-5",
         start_date: "2026-06-01T00:00:00.000Z",
-        term: "Summer",
+        term: "2025/2026",
         title: "New Event",
         year: 2026,
       },
@@ -332,7 +344,7 @@ describe("event service operations", () => {
       {
         reference: "MF-6",
         start_date: "2026-06-01T00:00:00.000Z",
-        term: "Summer",
+        term: "2025/2026",
         title: "Admin Event",
         year: 2026,
       },
@@ -359,7 +371,7 @@ describe("event service operations", () => {
         {
           reference: "MF-7",
           start_date: "2026-06-01T00:00:00.000Z",
-          term: "Summer",
+          term: "2025/2026",
           title: "Rollback Event",
           year: 2026,
         },
@@ -410,7 +422,7 @@ describe("event service operations", () => {
         {
           reference: "MF-4",
           start_date: "2026-06-01T00:00:00.000Z",
-          term: "Summer",
+          term: "2025/2026",
           title: "Duplicate",
           year: 2026,
         },
@@ -438,7 +450,7 @@ describe("create event validation", () => {
       end_date: "2026-05-01T00:00:00.000Z",
       reference: "MF-8",
       start_date: "2026-06-01T00:00:00.000Z",
-      term: "Summer",
+      term: "2025/2026",
       title: "Invalid Dates",
       year: 2026,
     });

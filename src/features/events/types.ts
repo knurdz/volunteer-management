@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EVENT_ROLES } from "@/lib/config";
+import { EVENT_ROLES, EVENT_YEAR_MAX, EVENT_YEAR_MIN, IEEE_TERMS } from "@/lib/config";
 import type { EventRole } from "@/features/access-control/types";
 
 export type { EventRole };
@@ -22,6 +22,7 @@ export const CONCLUSION_STATUSES = [
 
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 export type ConclusionStatus = (typeof CONCLUSION_STATUSES)[number];
+export type IeeeTerm = (typeof IEEE_TERMS)[number];
 
 export type Event = {
   $id: string;
@@ -30,7 +31,7 @@ export type Event = {
   title: string;
   reference: string;
   description?: string;
-  term: string;
+  term: IeeeTerm;
   year: number;
   start_date: string;
   end_date?: string;
@@ -70,16 +71,13 @@ export type CreateEventInput = {
   title: string;
   reference: string;
   description?: string;
-  term: string;
+  term: IeeeTerm;
   year: number;
   start_date: string;
   end_date?: string;
 };
 
-export type UpdateEventInput = Partial<CreateEventInput> & {
-  status?: EventStatus;
-  conclusion_status?: ConclusionStatus;
-};
+export type UpdateEventInput = Partial<CreateEventInput>;
 
 export type AssignEventRoleInput = {
   event_id: string;
@@ -92,6 +90,10 @@ export type CreateCommitteeInput = {
   event_id: string;
   name: string;
   description?: string;
+};
+
+export type AddCommitteeMemberInput = {
+  user_id: string;
 };
 
 export type EventPermissions = {
@@ -136,8 +138,8 @@ const createEventFields = z.object({
   title: z.string().trim().min(1).max(200),
   reference: z.string().trim().min(1).max(100),
   description: optionalDescription,
-  term: z.string().trim().min(1).max(20),
-  year: z.number().int(),
+  term: z.enum(IEEE_TERMS),
+  year: z.number().int().min(EVENT_YEAR_MIN).max(EVENT_YEAR_MAX),
   start_date: z.string().datetime({ offset: true }),
   end_date: optionalEndDate,
 });
@@ -150,10 +152,6 @@ export const CreateEventInputSchema = createEventFields
 
 export const UpdateEventInputSchema = createEventFields
   .partial()
-  .extend({
-    status: z.enum(EVENT_STATUSES).optional(),
-    conclusion_status: z.enum(CONCLUSION_STATUSES).optional(),
-  })
   .refine(dateRangeRefinement.check, {
     message: dateRangeRefinement.message,
     path: [...dateRangeRefinement.path],
@@ -185,6 +183,10 @@ export const CreateCommitteeInputSchema = z.object({
     .optional()
     .transform((value) => value || undefined),
 }) satisfies z.ZodType<CreateCommitteeInput>;
+
+export const AddCommitteeMemberInputSchema = z.object({
+  user_id: z.string().trim().min(1).max(64),
+}) satisfies z.ZodType<AddCommitteeMemberInput>;
 
 export const ConclusionActionSchema = z.object({
   action: z.enum(CONCLUSION_ACTIONS),

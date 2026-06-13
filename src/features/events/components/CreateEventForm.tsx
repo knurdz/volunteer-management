@@ -10,6 +10,7 @@ import {
   eventTextareaClasses,
 } from "@/features/events/lib/event-ui";
 import { CreateEventInputSchema } from "@/features/events/types";
+import { IEEE_TERMS } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 type FormState = {
@@ -134,15 +135,26 @@ export function CreateEventForm() {
       </label>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Field
-          error={fieldErrors.term}
-          id="term"
-          label="Term"
-          onChange={(value) => updateField("term", value)}
-          placeholder="2025/2026"
-          required
-          value={form.term}
-        />
+        <label className="block text-sm font-medium text-text-secondary" htmlFor="term">
+          IEEE Term
+          <select
+            className={cn(eventInputClasses, "mt-1")}
+            id="term"
+            onChange={(event) => updateField("term", event.target.value)}
+            required
+            value={form.term}
+          >
+            <option value="">Select term</option>
+            {IEEE_TERMS.map((term) => (
+              <option key={term} value={term}>
+                {term}
+              </option>
+            ))}
+          </select>
+          {fieldErrors.term ? (
+            <span className="mt-1 block text-xs text-danger">{fieldErrors.term}</span>
+          ) : null}
+        </label>
         <Field
           error={fieldErrors.year}
           id="year"

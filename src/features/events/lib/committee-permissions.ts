@@ -1,7 +1,6 @@
 import type { EventRole, EventRoleAssignment } from "@/features/access-control/types";
-import type { Event, EventStatus } from "@/features/events/types";
-
-const RESTRICTED_COMMITTEE_VIEW_STATUSES: EventStatus[] = ["draft", "planning"];
+import { isEventVisibleToUser } from "@/features/events/lib/event-permissions";
+import type { Event } from "@/features/events/types";
 
 const CHAIR_ASSIGNABLE_ROLES: EventRole[] = [
   "Vice Chair",
@@ -16,20 +15,22 @@ const CHAIR_REMOVABLE_ROLES: EventRole[] = [
 ];
 
 export function canViewEventCommittees(
-  userIsAdmin: boolean,
+  userId: string,
+  isAdmin: boolean,
   event: Event,
   userEventRole: EventRole | null,
-  userId: string,
 ) {
-  if (!RESTRICTED_COMMITTEE_VIEW_STATUSES.includes(event.status)) {
-    return true;
-  }
+  return isEventVisibleToUser(userId, isAdmin, event, userEventRole);
+}
 
-  if (userIsAdmin) {
-    return true;
-  }
-
-  return userEventRole != null || event.created_by === userId;
+export function canManageStructuralCommittees({
+  isAdmin,
+  userEventRole,
+}: {
+  isAdmin: boolean;
+  userEventRole: EventRole | null;
+}) {
+  return isAdmin || userEventRole === "Chair";
 }
 
 export function canAssignCommitteeRole({

@@ -25,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { CommitteeManagement } from "@/features/events/components/CommitteeManagement";
 import { AssignRoleModal } from "@/features/events/components/AssignRoleModal";
 import { canRemoveCommitteeRole } from "@/features/events/lib/committee-permissions";
 import {
@@ -36,7 +37,7 @@ import {
   getEventStatusBadgeClassName,
   getEventStatusBadgeTone,
 } from "@/features/events/lib/event-ui";
-import type { Event, EventPermissions, EventRole, EventStatus } from "@/features/events/types";
+import type { Committee, CommitteeMember, Event, EventPermissions, EventRole, EventStatus } from "@/features/events/types";
 import { EVENT_STATUSES } from "@/features/events/types";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +61,7 @@ function formatAssignmentRole(assignment: EventRoleAssignment) {
 export function EventDetail({
   currentUserId,
   initialAssignments,
+  initialCommittees,
   initialEvent,
   initialPermissions,
   isAdmin,
@@ -67,6 +69,7 @@ export function EventDetail({
 }: Readonly<{
   currentUserId: string;
   initialAssignments: EventRoleAssignment[];
+  initialCommittees: Array<Committee & { members: CommitteeMember[] }>;
   initialEvent: Event;
   initialPermissions: EventPermissions;
   isAdmin: boolean;
@@ -85,11 +88,11 @@ export function EventDetail({
   const [removeTarget, setRemoveTarget] = useState<EventRoleAssignment | null>(null);
 
   const refreshAssignments = useCallback(async () => {
-    const response = await fetch(`/api/events/${event.$id}/committees`);
+    const response = await fetch(`/api/events/${event.$id}/roles`);
     const payload = await response.json();
 
     if (response.ok) {
-      setAssignments(payload.assignments ?? payload.committees ?? []);
+      setAssignments(payload.assignments ?? []);
     }
   }, [event.$id]);
 
@@ -219,7 +222,7 @@ export function EventDetail({
 
     try {
       const response = await fetch(
-        `/api/events/${event.$id}/committees/${assignment.$id}`,
+        `/api/events/${event.$id}/roles/${assignment.$id}`,
         { method: "DELETE" },
       );
 
@@ -397,13 +400,19 @@ export function EventDetail({
         </CardContent>
       </Card>
 
+      <CommitteeManagement
+        canManage={permissions.canManageCommittee}
+        eventId={event.$id}
+        initialCommittees={initialCommittees}
+      />
+
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4 text-primary" aria-hidden="true" />
-                Committee
+                Role Assignments
               </CardTitle>
               <CardDescription>Active event role assignments.</CardDescription>
             </div>
@@ -565,6 +574,7 @@ export function EventDetail({
 
       {showAssignModal ? (
         <AssignRoleModal
+          committeeNames={initialCommittees.map((committee) => committee.name)}
           currentUserIsAdmin={isAdmin}
           eventId={event.$id}
           onClose={() => setShowAssignModal(false)}

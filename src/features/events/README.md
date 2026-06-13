@@ -3,43 +3,45 @@
 ## Role assignments
 
 Event roles are stored **only** in the `event_role_assignments` table (shared with access-control).
-Canonical role values come from `EVENT_ROLES` in `src/lib/config.ts`:
+Canonical role values come from `EVENT_ROLES` in `src/lib/config.ts`.
 
-- Chair
-- Vice Chair
-- Committee Lead
-- Committee Member
+Structural committees (`event_committees`) and membership (`event_committee_members`) are separate from roles.
 
-The legacy `event_committees` table stores **structural committee data only** (name, description, `event_id`).
-Membership without roles lives in `event_committee_members`.
+## API surface
+
+| Route | Purpose |
+| --- | --- |
+| `GET/POST /api/events/[eventId]/roles` | List / assign role assignments |
+| `DELETE /api/events/[eventId]/roles/[assignmentId]` | Remove role assignment |
+| `GET/POST /api/events/[eventId]/committees` | List / create structural committees |
+| `DELETE /api/events/[eventId]/committees/[committeeId]` | Delete committee |
+| `GET/POST /api/events/[eventId]/committees/[committeeId]/members` | List / add members |
+| `DELETE .../members/[memberId]` | Remove member |
+| `PATCH /api/events/[eventId]/conclude` | Conclusion workflow only |
+| `PATCH /api/events/[eventId]/status` | Operational status only (no conclusion bypass) |
 
 ## Conclusion workflow
 
-| Action | Who | Preconditions | Result |
-| --- | --- | --- | --- |
-| Submit | Chair or Admin | `status = ongoing`, `conclusion_status` is `not_submitted` or `rejected` | `status = pending_conclusion`, `conclusion_status = submitted` |
-| Approve | Admin | `conclusion_status = submitted` | `status = closed`, `conclusion_status = approved` |
-| Reject | Admin | `conclusion_status = submitted` | `status = ongoing`, `conclusion_status = rejected` |
+`pending_conclusion` and `closed` cannot be set through the generic status API or event PATCH.
+Use `PATCH /api/events/[eventId]/conclude` with `{ action: "submit" | "approve" | "reject" }`.
 
-API: `PATCH /api/events/[eventId]/conclude` with body `{ "action": "submit" | "approve" | "reject" }`.
+Approval writes audit action `EVENT_CONCLUSION_APPROVED` with scoring-ready metadata.
 
-## Admin verification bypass
+## Committee bootstrap
 
-Admins (`isAdmin` from session) skip UoM verification gates in committee APIs and on `/my-events`.
-Non-admin users must have `profile.uomVerified === true`.
+Every new event automatically receives a `General` committee so Committee Lead/Member assignments work immediately.
 
-## Safe role replacement
+## Visibility
 
-`updateEventRole` creates the new `event_role_assignments` document first, then deletes the old one.
-If deletion fails, the new assignment remains canonical and an `event_role.orphan_cleanup_needed` audit entry is written.
+Committee and role endpoints apply the same visibility rules as events. Closed events are hidden from users without an active role or creator access.
 
-## Event visibility
+## Role replacement
 
-- Admin: all events
-- Everyone: `published`, `ongoing`, `pending_conclusion`
-- Draft/planning: creator (`created_by`) or anyone with an active role assignment
+Role replacement creates the new assignment first. If deleting the old assignment fails, the new assignment is revoked and the operation fails without leaving duplicate privileged roles.
 
-## Audit logging
+## Validation
 
-All event mutations write non-blocking audit records via `safeEventAuditLog`.
-Audit failures are logged to the console and do not block the primary operation.
+- IEEE terms must match `IEEE_TERMS` in `src/lib/config.ts`
+- Event years must be between `EVENT_YEAR_MIN` and `EVENT_YEAR_MAX`
+- Partial date updates are validated against stored event dates server-side
+- Committee Lead/Member roles require an existing committee name on the event

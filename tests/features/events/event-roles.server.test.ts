@@ -141,10 +141,10 @@ describe("event-roles.server", () => {
     });
   });
 
-  describe("updateEventRole", () => {
-    it("returns new assignment and writes orphan audit when delete fails", async () => {
-      const { safeEventAuditLog } = await import("@/features/events/server/event-audit");
-      const { updateEventRole } = await import("@/features/events/server/event-roles.server");
+  describe("replaceEventRole", () => {
+    it("rolls back the new assignment when deleting the old one fails", async () => {
+      const { replaceEventRole } = await import("@/features/events/server/event-roles.server");
+      const { ConflictError } = await import("@/server/errors");
       const newAssignment = createAssignment({
         $id: "assignment-new",
         role: "Vice Chair",
@@ -164,22 +164,21 @@ describe("event-roles.server", () => {
       assignAccessControlEventRole.mockResolvedValueOnce(newAssignment);
       mockTables.deleteRow.mockRejectedValueOnce(new Error("delete failed"));
 
-      const result = await updateEventRole({
-        actorUserId: "admin-user",
-        eventId: "event-1",
-        eventTitle: "Test Event",
-        newRole: "Vice Chair",
-        oldAssignmentId: "assignment-old",
-        userId: "user-1",
-      });
-
-      expect(result.$id).toBe("assignment-new");
-      expect(safeEventAuditLog).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: "event_role.orphan_cleanup_needed",
-          metadata: { new_id: "assignment-new", old_id: "assignment-old" },
+      await expect(
+        replaceEventRole({
+          actorUserId: "admin-user",
+          eventId: "event-1",
+          eventTitle: "Test Event",
+          newRole: "Vice Chair",
+          oldAssignmentId: "assignment-old",
+          userId: "user-1",
         }),
-      );
+      ).rejects.toBeInstanceOf(ConflictError);
+
+      expect(revokeEventRole).toHaveBeenCalledWith({
+        actorUserId: "admin-user",
+        assignmentId: "assignment-new",
+      });
     });
   });
 
@@ -200,7 +199,7 @@ describe("event-roles.server", () => {
           reference: "MF-4",
           start_date: "2026-06-01T00:00:00.000Z",
           status: "pending_conclusion",
-          term: "Summer",
+          term: "2025/2026",
           title: "Event",
           updated_at: "2026-01-01T00:00:00.000Z",
           year: 2026,

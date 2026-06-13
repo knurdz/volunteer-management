@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
-import {
-  canManageStructuralCommittees,
-  canViewEventCommittees,
-} from "@/features/events/lib/committee-permissions";
+import { canAssignCommitteeRole } from "@/features/events/lib/committee-permissions";
 import {
   parseValidationBody,
   requireVerifiedVolunteer,
   requireVisibleEvent,
 } from "@/features/events/server/event-route-helpers";
 import {
-  createCommittee,
-  listCommitteesForEvent,
-} from "@/features/events/server/committees.server";
-import { CreateCommitteeInputSchema } from "@/features/events/types";
+  assignEventRole,
+  getRoleAssignmentsForEvent,
+} from "@/features/events/server/event-roles.server";
+import { AssignEventRoleInputSchema } from "@/features/events/types";
 import { ForbiddenError, jsonError, routeErrorStatus } from "@/server/errors";
 
 type RouteContext = {
@@ -31,17 +28,12 @@ export async function GET(_request: Request, context: RouteContext) {
   const { eventId } = await context.params;
 
   try {
-    const { event, userEventRole } = await requireVisibleEvent(eventId, user!);
-
-    if (!canViewEventCommittees(user!.authUser.id, user!.isAdmin, event, userEventRole)) {
-      return jsonError("Event was not found.", 404);
-    }
-
-    const committees = await listCommitteesForEvent(eventId);
-    return NextResponse.json({ committees });
+    await requireVisibleEvent(eventId, user!);
+    const assignments = await getRoleAssignmentsForEvent(eventId);
+    return NextResponse.json({ assignments });
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Failed to list committees.",
+      error instanceof Error ? error.message : "Failed to list event role assignments.",
       routeErrorStatus(error),
     );
   }
@@ -56,7 +48,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const { eventId } = await context.params;
-  const parsed = parseValidationBody(CreateCommitteeInputSchema, await request.json());
+  const parsed = parseValidationBody(AssignEventRoleInputSchema, await request.json());
 
   if ("error" in parsed && parsed.error) {
     return parsed.error;
@@ -70,19 +62,20 @@ export async function POST(request: Request, context: RouteContext) {
     const { userEventRole } = await requireVisibleEvent(eventId, user!);
 
     if (
-      !canManageStructuralCommittees({
+      !canAssignCommitteeRole({
+        actorEventRole: userEventRole,
         isAdmin: user!.isAdmin,
-        userEventRole,
+        targetRole: parsed.data.role,
       })
     ) {
-      throw new ForbiddenError("You do not have permission to manage committees.");
+      throw new ForbiddenError("You do not have permission to assign this event role.");
     }
 
-    const committee = await createCommittee(parsed.data, user!.authUser.id);
-    return NextResponse.json({ committee }, { status: 201 });
+    const assignment = await assignEventRole(parsed.data, user!.authUser.id);
+    return NextResponse.json({ assignment }, { status: 201 });
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Failed to create committee.",
+      error instanceof Error ? error.message : "Failed to assign event role.",
       routeErrorStatus(error),
     );
   }

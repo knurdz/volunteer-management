@@ -8,7 +8,6 @@ type RouteContext = {
   params: Promise<{ eventId: string }>;
 };
 
-/** @deprecated Use GET /api/events/[eventId]/roles/me */
 export async function GET(_request: Request, context: RouteContext) {
   const user = await getCurrentUser();
   const authError = requireVerifiedVolunteer(user);
@@ -22,7 +21,7 @@ export async function GET(_request: Request, context: RouteContext) {
   try {
     await requireVisibleEvent(eventId, user!);
     const assignment = await getUserEventRoleAssignment(user!.authUser.id, eventId);
-    return NextResponse.json({ assignment, committee: assignment });
+    return NextResponse.json({ assignment });
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Failed to fetch your event role.",

@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import {
-  canChangeEventStatus,
   getEventUserContext,
   getPermissionsForUser,
   isEventVisible,
@@ -14,7 +13,6 @@ import {
   getEventById,
   getEventWithRoleAssignments,
   updateEvent,
-  updateEventStatus,
 } from "@/features/events/server/event-service";
 import { UpdateEventInputSchema } from "@/features/events/types";
 import { ForbiddenError, jsonError, routeErrorStatus } from "@/server/errors";
@@ -91,39 +89,16 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const permissions = getPermissionsForUser(user, existingEvent, userEventRole);
     const filteredInput = filterUpdateInputForRole(parsed.data, { isAdmin: user.isAdmin });
-    const { status, ...fieldUpdates } = filteredInput;
-    const hasFieldUpdates = Object.keys(fieldUpdates).length > 0;
+    const hasFieldUpdates = Object.keys(filteredInput).length > 0;
 
     if (hasFieldUpdates && !permissions.canEdit) {
       return jsonError("You do not have permission to edit this event.", 403);
     }
 
-    if (status) {
-      if (
-        !canChangeEventStatus({
-          event: existingEvent,
-          newStatus: status,
-          user,
-          userEventRole,
-        })
-      ) {
-        return jsonError("You do not have permission to change this event status.", 403);
-      }
-
-      await updateEventStatus(eventId, status, {
-        actorUserId: user.authUser.id,
-        allowAdminBackward: user.isAdmin,
-      });
-    }
-
     const event =
       hasFieldUpdates && permissions.canEdit
-        ? await updateEvent(eventId, fieldUpdates, user.authUser.id)
-        : await getEventById(eventId);
-
-    if (!event) {
-      return jsonError("Event was not found.", 404);
-    }
+        ? await updateEvent(eventId, filteredInput, user.authUser.id)
+        : existingEvent;
 
     return NextResponse.json({ event });
   } catch (error) {

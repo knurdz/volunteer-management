@@ -15,11 +15,12 @@ import {
   toEventRoleAssignment,
 } from "@/features/access-control/server/roles";
 import type { EventRole, EventRoleAssignment } from "@/features/access-control/types";
+import { assertCommitteeExistsForRole } from "@/features/events/lib/event-validation";
 import { getServerEnv } from "@/lib/env";
 import { getAppwriteAdminServices } from "@/server/appwrite";
-import { ValidationError } from "@/server/errors";
+import { ConflictError, ValidationError } from "@/server/errors";
 import { safeEventAuditLog } from "@/features/events/server/event-audit";
-import { hasCommitteesForEvent } from "@/features/events/server/committees.server";
+import { listCommitteesForEvent } from "@/features/events/server/committees.server";
 import { validateAssignableEventUser } from "@/features/events/server/event-user-validation";
 import { getEventById } from "@/features/events/server/event-service";
 import type { AssignEventRoleInput } from "@/features/events/types";
@@ -69,6 +70,29 @@ export async function getUserEventRole(
   return assignment?.role ?? null;
 }
 
+async function validateRoleCommitteeInput(
+  eventId: string,
+  role: EventRole,
+  committeeName?: string,
+) {
+  if (!requiresCommitteeName(role)) {
+    return;
+  }
+
+  const normalized = normalizeCommitteeName(committeeName);
+
+  if (!normalized) {
+    throw new ValidationError(`${role} assignments require a committee name.`);
+  }
+
+  const committees = await listCommitteesForEvent(eventId);
+  assertCommitteeExistsForRole({
+    committeeName: normalized,
+    committees,
+    role,
+  });
+}
+
 export async function assignEventRole(
   input: AssignEventRoleInput,
   assignedByUserId: string,
@@ -81,20 +105,20 @@ export async function assignEventRole(
     throw new ValidationError("Event was not found.");
   }
 
-  if (requiresCommitteeName(input.role)) {
-    const committeeName = normalizeCommitteeName(input.committee_name);
+  await validateRoleCommitteeInput(input.event_id, input.role, input.committee_name);
 
-    if (!committeeName) {
-      throw new ValidationError(`${input.role} assignments require a committee name.`);
-    }
+  const existing = await getUserEventRoleAssignment(input.user_id, input.event_id);
 
-    const hasCommittees = await hasCommitteesForEvent(input.event_id);
-
-    if (!hasCommittees) {
-      throw new ValidationError(
-        "Cannot assign Committee Lead or Committee Member when no committees exist for this event.",
-      );
-    }
+  if (existing && existing.role !== input.role) {
+    return replaceEventRole({
+      actorUserId: assignedByUserId,
+      committeeName: input.committee_name,
+      eventId: input.event_id,
+      eventTitle: event.title,
+      newRole: input.role,
+      oldAssignmentId: existing.$id,
+      userId: input.user_id,
+    });
   }
 
   const assignment = await assignAccessControlEventRole({
@@ -117,7 +141,7 @@ export async function assignEventRole(
   return assignment;
 }
 
-export async function updateEventRole({
+export async function replaceEventRole({
   actorUserId,
   committeeName,
   eventId,
@@ -161,13 +185,26 @@ export async function updateEventRole({
     );
   } catch (error) {
     console.error("Failed to delete old role assignment after creating new one:", error);
-    await safeEventAuditLog({
-      action: "event_role.orphan_cleanup_needed",
-      actorUserId,
-      metadata: { new_id: newAssignment.$id, old_id: oldAssignmentId },
-      targetId: eventId,
-      targetType: "event",
-    });
+
+    try {
+      await revokeEventRole({
+        actorUserId,
+        assignmentId: newAssignment.$id,
+      });
+    } catch (rollbackError) {
+      console.error("Failed to roll back new role assignment:", rollbackError);
+      await safeEventAuditLog({
+        action: "event_role.orphan_cleanup_needed",
+        actorUserId,
+        metadata: { new_id: newAssignment.$id, old_id: oldAssignmentId },
+        targetId: eventId,
+        targetType: "event",
+      });
+    }
+
+    throw new ConflictError(
+      "Failed to replace role assignment. The previous role remains active.",
+    );
   }
 
   await safeEventAuditLog({

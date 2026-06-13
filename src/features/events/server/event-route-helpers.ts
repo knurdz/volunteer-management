@@ -1,17 +1,22 @@
 import "server-only";
 
-import { z } from "zod";
 import { canVolunteer, hasSbRole } from "@/features/access-control/lib/rules";
 import type { SessionUser } from "@/features/access-control/types";
 import {
   getEventPermissions,
   isEventVisibleToUser,
 } from "@/features/events/lib/event-permissions";
+import {
+  assertOperationalStatusTransition,
+  ConclusionManagedStatusError,
+  isLegalEventStatusTransition,
+} from "@/features/events/lib/event-status-transitions";
 import { getUserEventRole } from "@/features/events/server/event-roles.server";
+import { getEventById } from "@/features/events/server/event-service";
 import type { Event, EventRole, EventStatus } from "@/features/events/types";
 import { EVENT_STATUSES } from "@/features/events/types";
 import { NextResponse } from "next/server";
-import { jsonError } from "@/server/errors";
+import { jsonError, NotFoundError } from "@/server/errors";
 
 export const VOLUNTEER_VISIBLE_STATUSES: EventStatus[] = [
   "published",
@@ -20,10 +25,14 @@ export const VOLUNTEER_VISIBLE_STATUSES: EventStatus[] = [
 ];
 
 export function canCreateEvent(user: SessionUser) {
-  return user.isAdmin || hasSbRole(user, ["ExCom", "SB Lead"]);
+  if (user.isAdmin) {
+    return true;
+  }
+
+  return hasSbRole(user, ["ExCom", "SB Lead"]) && canVolunteer(user.profile);
 }
 
-export function parseValidationBody<T>(schema: z.ZodType<T>, data: unknown) {
+export function parseValidationBody<T>(schema: import("zod").ZodType<T>, data: unknown) {
   const result = schema.safeParse(data);
 
   if (!result.success) {
@@ -70,26 +79,47 @@ export function getPermissionsForUser(
   );
 }
 
+export async function requireVisibleEvent(eventId: string, user: SessionUser) {
+  const event = await getEventById(eventId);
+
+  if (!event) {
+    throw new NotFoundError("Event was not found.");
+  }
+
+  const { userEventRole } = await getEventUserContext(eventId, user);
+
+  if (!isEventVisible(user, event, userEventRole)) {
+    throw new NotFoundError("Event was not found.");
+  }
+
+  return { event, userEventRole };
+}
+
 export function canChangeEventStatus({
   event,
   newStatus,
   user,
-  userEventRole,
 }: {
   event: Event;
   newStatus: EventStatus;
   user: SessionUser;
-  userEventRole?: EventRole | null;
 }) {
-  if (user.isAdmin) {
-    return true;
+  if (!user.isAdmin) {
+    return false;
   }
 
-  return (
-    userEventRole === "Chair" &&
-    event.status === "ongoing" &&
-    newStatus === "pending_conclusion"
-  );
+  try {
+    assertOperationalStatusTransition(event.status, newStatus, {
+      allowAdminBackward: true,
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof ConclusionManagedStatusError) {
+      return false;
+    }
+
+    return false;
+  }
 }
 
 export function requireVerifiedVolunteer(user: SessionUser | null) {
@@ -108,6 +138,20 @@ export function requireVerifiedVolunteer(user: SessionUser | null) {
   return null;
 }
 
+export function requireEventCreator(user: SessionUser | null) {
+  const authError = requireVerifiedVolunteer(user);
+
+  if (authError) {
+    return authError;
+  }
+
+  if (!user || !canCreateEvent(user)) {
+    return jsonError("Required Student Branch role is missing.", 403);
+  }
+
+  return null;
+}
+
 export function parseEventStatus(value: string | null): EventStatus | undefined {
   if (!value) {
     return undefined;
@@ -116,4 +160,26 @@ export function parseEventStatus(value: string | null): EventStatus | undefined 
   return EVENT_STATUSES.includes(value as EventStatus)
     ? (value as EventStatus)
     : undefined;
+}
+
+export function getAllowedStatusTransitions(
+  current: EventStatus,
+  { isAdmin }: { isAdmin: boolean },
+) {
+  return EVENT_STATUSES.filter(
+    (status) =>
+      isLegalEventStatusTransition(current, status, { allowAdminBackward: isAdmin }) &&
+      (isAdmin
+        ? (() => {
+            try {
+              assertOperationalStatusTransition(current, status, {
+                allowAdminBackward: true,
+              });
+              return true;
+            } catch {
+              return false;
+            }
+          })()
+        : false),
+  );
 }

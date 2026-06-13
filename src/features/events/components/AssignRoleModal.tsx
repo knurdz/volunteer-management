@@ -16,11 +16,13 @@ const CHAIR_ASSIGNABLE_ROLES: EventRole[] = [
 const ADMIN_ASSIGNABLE_ROLES: EventRole[] = ["Chair", ...CHAIR_ASSIGNABLE_ROLES];
 
 export function AssignRoleModal({
+  committeeNames,
   currentUserIsAdmin,
   eventId,
   onClose,
   onSuccess,
 }: Readonly<{
+  committeeNames: string[];
   currentUserIsAdmin: boolean;
   eventId: string;
   onClose: () => void;
@@ -58,7 +60,7 @@ export function AssignRoleModal({
     }
 
     try {
-      const response = await fetch(`/api/events/${eventId}/committees`, {
+      const response = await fetch(`/api/events/${eventId}/roles`, {
         body: JSON.stringify(parsed.data),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -134,15 +136,31 @@ export function AssignRoleModal({
           </label>
 
           <label className="block text-sm font-medium text-text-secondary" htmlFor="committee_name">
-            Committee name (optional)
-            <input
-              className={cn(eventInputClasses, "mt-1")}
-              disabled={!committeeRequired}
-              id="committee_name"
-              onChange={(event) => setCommitteeName(event.target.value)}
-              placeholder={committeeRequired ? "Program, Logistics, Design" : "Not required"}
-              value={committeeName}
-            />
+            Committee
+            {committeeRequired ? (
+              <select
+                className={cn(eventInputClasses, "mt-1")}
+                id="committee_name"
+                onChange={(event) => setCommitteeName(event.target.value)}
+                required
+                value={committeeName}
+              >
+                <option value="">Select committee</option>
+                {committeeNames.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={cn(eventInputClasses, "mt-1")}
+                disabled
+                id="committee_name"
+                placeholder="Not required"
+                value=""
+              />
+            )}
           </label>
 
           {error ? (

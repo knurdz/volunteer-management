@@ -8,6 +8,7 @@ import {
   getPermissionsForUser,
   isEventVisible,
 } from "@/features/events/server/event-route-helpers";
+import { listCommitteesForEvent, listCommitteeMembers } from "@/features/events/server/committees.server";
 import { getRoleAssignmentsForEvent } from "@/features/events/server/event-roles.server";
 import { getEventById } from "@/features/events/server/event-service";
 
@@ -41,8 +42,16 @@ export default async function EventDetailPage({ params }: PageProps) {
     redirect("/events");
   }
 
-  const [assignments, permissions] = await Promise.all([
+  const [assignments, committees, permissions] = await Promise.all([
     getRoleAssignmentsForEvent(eventId),
+    listCommitteesForEvent(eventId).then(async (items) =>
+      Promise.all(
+        items.map(async (committee) => ({
+          ...committee,
+          members: await listCommitteeMembers(committee.$id),
+        })),
+      ),
+    ),
     Promise.resolve(getPermissionsForUser(user, event, userEventRole)),
   ]);
 
@@ -51,6 +60,7 @@ export default async function EventDetailPage({ params }: PageProps) {
       <EventDetail
         currentUserId={user.authUser.id}
         initialAssignments={assignments}
+        initialCommittees={committees}
         initialEvent={event}
         initialPermissions={permissions}
         isAdmin={user.isAdmin}

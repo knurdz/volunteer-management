@@ -2,6 +2,7 @@ import "server-only";
 
 import { AppwriteException } from "node-appwrite";
 import { NextResponse } from "next/server";
+import { ConclusionManagedStatusError } from "@/features/events/lib/event-status-transitions";
 
 export class NotFoundError extends Error {
   constructor(message: string) {
@@ -44,6 +45,10 @@ export function jsonError(message: string, status = 400) {
 }
 
 export function routeErrorStatus(error: unknown, fallback = 400) {
+  if (error instanceof ConclusionManagedStatusError) {
+    return 409;
+  }
+
   if (error instanceof NotFoundError) {
     return 404;
   }

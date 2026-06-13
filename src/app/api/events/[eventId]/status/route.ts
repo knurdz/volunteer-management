@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { canVolunteer } from "@/features/access-control/lib/rules";
 import { getCurrentUser } from "@/features/access-control/server/current-user";
 import {
   canChangeEventStatus,
-  getEventUserContext,
-  isEventVisible,
   parseValidationBody,
+  requireVerifiedVolunteer,
+  requireVisibleEvent,
 } from "@/features/events/server/event-route-helpers";
-import { getEventById, updateEventStatus } from "@/features/events/server/event-service";
+import { updateEventStatus } from "@/features/events/server/event-service";
 import { EVENT_STATUSES } from "@/features/events/types";
-import { jsonError } from "@/server/errors";
+import { ForbiddenError, jsonError, routeErrorStatus } from "@/server/errors";
 
 const statusUpdateSchema = z.object({
   status: z.enum(EVENT_STATUSES),
@@ -22,13 +21,10 @@ type RouteContext = {
 
 export async function PATCH(request: Request, context: RouteContext) {
   const user = await getCurrentUser();
+  const authError = requireVerifiedVolunteer(user);
 
-  if (!user) {
-    return jsonError("Authentication required.", 401);
-  }
-
-  if (!user.isAdmin && !canVolunteer(user.profile)) {
-    return jsonError("Verified UoM email is required before volunteering.", 403);
+  if (authError) {
+    return authError;
   }
 
   const { eventId } = await context.params;
@@ -39,35 +35,24 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const existingEvent = await getEventById(eventId);
-
-    if (!existingEvent) {
-      return jsonError("Event was not found.", 404);
-    }
-
-    const { userEventRole } = await getEventUserContext(eventId, user);
-
-    if (!isEventVisible(user, existingEvent, userEventRole)) {
-      return jsonError("Event was not found.", 404);
-    }
+    const { event } = await requireVisibleEvent(eventId, user!);
 
     if (
       !canChangeEventStatus({
-        event: existingEvent,
+        event,
         newStatus: parsed.data.status,
-        user,
-        userEventRole,
+        user: user!,
       })
     ) {
-      return jsonError("You do not have permission to change this event status.", 403);
+      throw new ForbiddenError("You do not have permission to change this event status.");
     }
 
-    const event = await updateEventStatus(eventId, parsed.data.status, {
-      actorUserId: user.authUser.id,
-      allowAdminBackward: user.isAdmin,
+    const updatedEvent = await updateEventStatus(eventId, parsed.data.status, {
+      actorUserId: user!.authUser.id,
+      allowAdminBackward: user!.isAdmin,
     });
 
-    return NextResponse.json({ event });
+    return NextResponse.json({ event: updatedEvent });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to update event status.";
@@ -76,6 +61,6 @@ export async function PATCH(request: Request, context: RouteContext) {
       return jsonError(message, 400);
     }
 
-    return jsonError(message, 400);
+    return jsonError(message, routeErrorStatus(error));
   }
 }

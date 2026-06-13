@@ -24,7 +24,7 @@ export type AuditAction =
   | "event.status_change"
   | "event.delete"
   | "event.conclusion_submitted"
-  | "event.conclusion_approved"
+  | "EVENT_CONCLUSION_APPROVED"
   | "event.conclusion_rejected"
   | "event_role.assign"
   | "event_role.update"

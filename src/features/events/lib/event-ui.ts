@@ -1,8 +1,7 @@
 import type { ConclusionStatus, EventStatus } from "@/features/events/types";
+import { getOperationalStatusTransitions } from "@/features/events/lib/event-status-transitions";
 
 type BadgeTone = "neutral" | "primary" | "success" | "warning" | "danger";
-import { EVENT_STATUSES } from "@/features/events/types";
-import { isLegalEventStatusTransition } from "@/features/events/lib/event-status-transitions";
 
 export const eventInputClasses =
   "h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary";
@@ -95,9 +94,7 @@ export function getAvailableStatusTransitions(
   current: EventStatus,
   { isAdmin }: { isAdmin: boolean },
 ): EventStatus[] {
-  return EVENT_STATUSES.filter((status) =>
-    isLegalEventStatusTransition(current, status, { allowAdminBackward: isAdmin }),
-  );
+  return getOperationalStatusTransitions(current, { isAdmin });
 }
 
 export function formatEventRole(role: string, displayRole?: string) {

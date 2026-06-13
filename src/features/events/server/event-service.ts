@@ -5,15 +5,28 @@ import { ID, Query } from "node-appwrite";
 import { APPWRITE_TABLES } from "@/lib/appwrite/constants";
 import { assignEventRole as assignAccessControlEventRole } from "@/features/access-control/server/roles";
 import { getActiveEventRoleAssignments } from "@/features/access-control/server/roles";
-import { assertLegalEventStatusTransition } from "@/features/events/lib/event-status-transitions";
+import {
+  assertOperationalStatusTransition,
+} from "@/features/events/lib/event-status-transitions";
+import {
+  assertEventDateRange,
+  assertEventYear,
+  assertIeeeTerm,
+  assertMergedEventDateRange,
+} from "@/features/events/lib/event-validation";
 import { safeEventAuditLog } from "@/features/events/server/event-audit";
-import { deleteCommittee, listCommitteesForEvent } from "@/features/events/server/committees.server";
+import {
+  createCommittee,
+  deleteCommittee,
+  listCommitteesForEvent,
+} from "@/features/events/server/committees.server";
 import type {
   ConclusionStatus,
   CreateEventInput,
   Event,
   EventStatus,
   EventWithRoleAssignments,
+  IeeeTerm,
   UpdateEventInput,
 } from "@/features/events/types";
 import { getServerEnv } from "@/lib/env";
@@ -43,7 +56,7 @@ export function toEvent(row: AppRow): Event {
     reference: String(row.reference),
     start_date: String(row.start_date),
     status: String(row.status) as EventStatus,
-    term: String(row.term),
+    term: String(row.term) as IeeeTerm,
     title: String(row.title),
     updated_at: String(row.updated_at),
     year: Number(row.year),
@@ -189,6 +202,10 @@ export async function createEvent(
   const { tables } = getAppwriteAdminServices();
   const now = new Date().toISOString();
 
+  assertIeeeTerm(input.term);
+  assertEventYear(input.year);
+  assertEventDateRange({ end_date: input.end_date, start_date: input.start_date });
+
   const duplicate = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.events,
@@ -230,8 +247,17 @@ export async function createEvent(
     targetType: "event",
   });
 
-  if (!isAdmin) {
-    try {
+  try {
+    await createCommittee(
+      {
+        description: "Default committee created with the event.",
+        event_id: event.$id,
+        name: "General",
+      },
+      createdByUserId,
+    );
+
+    if (!isAdmin) {
       await assignAccessControlEventRole({
         actorUserId: createdByUserId,
         eventId: event.$id,
@@ -251,15 +277,15 @@ export async function createEvent(
         targetId: event.$id,
         targetType: "event",
       });
-    } catch (error) {
-      await tables.deleteRow(
-        env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-        APPWRITE_TABLES.events,
-        event.$id,
-      );
-
-      throw error;
     }
+  } catch (error) {
+    await tables.deleteRow(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.events,
+      event.$id,
+    );
+
+    throw error;
   }
 
   return event;
@@ -318,6 +344,22 @@ export async function updateEvent(
   input: UpdateEventInput,
   actorUserId: string,
 ): Promise<Event> {
+  const existing = await getEventById(eventId);
+
+  if (!existing) {
+    throw new NotFoundError("Event was not found.");
+  }
+
+  assertMergedEventDateRange(existing, input);
+
+  if (input.term !== undefined) {
+    assertIeeeTerm(input.term);
+  }
+
+  if (input.year !== undefined) {
+    assertEventYear(input.year);
+  }
+
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
   const now = new Date().toISOString();
@@ -349,14 +391,6 @@ export async function updateEvent(
 
   if (input.end_date !== undefined) {
     payload.end_date = input.end_date ?? null;
-  }
-
-  if (input.status !== undefined) {
-    payload.status = input.status;
-  }
-
-  if (input.conclusion_status !== undefined) {
-    payload.conclusion_status = input.conclusion_status;
   }
 
   const row = await tables.updateRow<AppRow>(
@@ -391,7 +425,7 @@ export async function updateEventStatus(
   }
 
   const previousStatus = event.status;
-  assertLegalEventStatusTransition(event.status, newStatus, options);
+  assertOperationalStatusTransition(event.status, newStatus, options);
 
   const env = getServerEnv();
   const { tables } = getAppwriteAdminServices();
@@ -499,8 +533,17 @@ export async function approveConclusion(
   const updated = toEvent(row);
 
   await safeEventAuditLog({
-    action: "event.conclusion_approved",
+    action: "EVENT_CONCLUSION_APPROVED",
     actorUserId,
+    metadata: {
+      conclusion_status: "approved",
+      event_id: eventId,
+      reference: event.reference,
+      scoring_ready: true,
+      status: "closed",
+      term: event.term,
+      year: event.year,
+    },
     targetId: eventId,
     targetType: "event",
   });
