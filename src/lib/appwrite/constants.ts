@@ -6,6 +6,9 @@ export const APPWRITE_TABLES = {
   sbRoleAssignments: "sb_role_assignments",
   eventRoleAssignments: "event_role_assignments",
   auditLogs: "audit_logs",
+  events: "events",
+  eventCommittees: "event_committees",
+  eventCommitteeMembers: "event_committee_members",
 } as const;
 
 export const UOM_VERIFICATION_CODE_TTL_MINUTES = 15;

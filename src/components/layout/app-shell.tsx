@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { LayoutDashboard, LogOut, MailCheck, ShieldCheck, UsersRound } from "lucide-react";
+import {
+  CalendarDays,
+  LayoutDashboard,
+  LogOut,
+  MailCheck,
+  ShieldCheck,
+  UsersRound,
+} from "lucide-react";
 import { APP_NAME, ORGANIZATION_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SessionUser } from "@/features/access-control/types";
@@ -9,7 +16,7 @@ export function AppShell({
   children,
   user,
 }: Readonly<{
-  active: "dashboard" | "verification" | "users";
+  active: "dashboard" | "events" | "my-events" | "verification" | "users";
   children: React.ReactNode;
   user: SessionUser;
 }>) {
@@ -20,6 +27,22 @@ export function AppShell({
       id: "dashboard",
       label: "Overview",
     },
+    {
+      href: "/events",
+      icon: CalendarDays,
+      id: "events",
+      label: "Events",
+    },
+    ...(user.profile.uomVerified || user.isAdmin
+      ? [
+          {
+            href: "/my-events",
+            icon: CalendarDays,
+            id: "my-events",
+            label: "My Events",
+          },
+        ]
+      : []),
     {
       href: "/verify-uom",
       icon: MailCheck,

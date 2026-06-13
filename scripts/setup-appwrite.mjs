@@ -155,6 +155,70 @@ const tableDefinitions = [
       ["audit_created_at_idx", ["createdAt"]],
     ],
   },
+  {
+    id: "events",
+    name: "Events",
+    columns: [
+      ["string", "title", 200, true],
+      ["string", "reference", 100, true],
+      ["string", "description", 2000, false],
+      ["string", "term", 20, true],
+      ["integer", "year", true],
+      ["datetime", "start_date", true],
+      ["datetime", "end_date", false],
+      [
+        "enum",
+        "status",
+        ["draft", "planning", "published", "ongoing", "pending_conclusion", "closed"],
+        true,
+      ],
+      [
+        "enum",
+        "conclusion_status",
+        ["not_submitted", "submitted", "approved", "rejected"],
+        true,
+      ],
+      ["string", "created_by", 64, true],
+      ["datetime", "created_at", true],
+      ["datetime", "updated_at", true],
+    ],
+    indexes: [
+      ["events_status_idx", ["status"]],
+      ["events_term_idx", ["term"]],
+      ["events_created_by_idx", ["created_by"]],
+      ["events_reference_idx", ["reference"], "unique"],
+    ],
+  },
+  {
+    id: "event_committees",
+    name: "Event Committees",
+    columns: [
+      ["string", "event_id", 64, true],
+      ["string", "name", 100, true],
+      ["string", "description", 500, false],
+      ["datetime", "created_at", true],
+      ["datetime", "updated_at", true],
+    ],
+    indexes: [
+      ["event_committees_event_idx", ["event_id"]],
+      ["event_committees_event_name_idx", ["event_id", "name"], "unique"],
+    ],
+  },
+  {
+    id: "event_committee_members",
+    name: "Event Committee Members",
+    columns: [
+      ["string", "committee_id", 64, true],
+      ["string", "user_id", 64, true],
+      ["string", "added_by", 64, true],
+      ["datetime", "added_at", true],
+    ],
+    indexes: [
+      ["event_committee_members_committee_idx", ["committee_id"]],
+      ["event_committee_members_user_idx", ["user_id"]],
+      ["event_committee_members_committee_user_idx", ["committee_id", "user_id"], "unique"],
+    ],
+  },
 ];
 
 async function ignoreAlreadyExists(action, label) {
@@ -296,22 +360,68 @@ async function main() {
 
     await waitForColumns(table.id);
 
-    for (const [indexId, columns] of table.indexes) {
-      await ignoreAlreadyExists(
-        () =>
-          tables.createIndex(
-            databaseId,
-            table.id,
-            indexId,
-            TablesDBIndexType.Key,
-            columns,
-          ),
-        `index ${table.id}.${indexId}`,
-      );
+    for (const indexDef of table.indexes) {
+      const [indexId, columns, indexType = "key"] = indexDef;
+      const resolvedType =
+        indexType === "unique" ? TablesDBIndexType.Unique : TablesDBIndexType.Key;
+
+      await ensureIndex({
+        columns,
+        indexId,
+        indexType: resolvedType,
+        tableId: table.id,
+      });
     }
   }
 
+  await migrateLegacyEventCommittees();
   await migrateEventRoleNames();
+}
+
+async function ensureIndex({ columns, indexId, indexType, tableId }) {
+  const label = `index ${tableId}.${indexId}`;
+
+  try {
+    const existing = await tables.getIndex(databaseId, tableId, indexId);
+
+    if (existing.type !== indexType) {
+      await tables.deleteIndex(databaseId, tableId, indexId);
+      console.log(`deleted ${label} for type migration`);
+    } else {
+      console.log(`exists ${label}`);
+      return;
+    }
+  } catch (error) {
+    if (error?.code !== 404) {
+      throw error;
+    }
+  }
+
+  await tables.createIndex(databaseId, tableId, indexId, indexType, columns);
+  console.log(`created ${label}`);
+}
+
+async function migrateLegacyEventCommittees() {
+  const legacyColumns = [
+    "user_id",
+    "role",
+    "committee_name",
+    "display_role",
+    "assigned_by",
+    "assigned_at",
+    "is_active",
+  ];
+
+  for (const columnKey of legacyColumns) {
+    try {
+      await tables.deleteColumn(databaseId, "event_committees", columnKey);
+      console.log(`removed legacy column event_committees.${columnKey}`);
+    } catch (error) {
+      if (error?.code !== 404) {
+        throw error;
+      }
+    }
+  }
 }
 
 async function migrateEventRoleNames() {
