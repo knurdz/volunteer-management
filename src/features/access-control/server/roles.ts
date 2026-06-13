@@ -350,6 +350,25 @@ export async function assignEventRole({
     throw new Error(`${role} assignments require a committee name.`);
   }
 
+  // Check if user already has an active assignment in this event
+  const existingActiveResult = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.eventRoleAssignments,
+    [
+      Query.equal("userId", userId),
+      Query.equal("eventId", normalizedEventId),
+      Query.equal("active", true),
+    ]
+  );
+
+  const duplicate = existingActiveResult.rows.find(
+    (row) => row.role !== role || (row.committeeName || "") !== (normalizedCommitteeName || "")
+  );
+
+  if (duplicate) {
+    throw new Error(`Volunteer already has an active role '${duplicate.role}' in event '${normalizedEventId}'.`);
+  }
+
   const rowId = eventRoleRowId({
     committeeName: normalizedCommitteeName,
     eventId: normalizedEventId,
