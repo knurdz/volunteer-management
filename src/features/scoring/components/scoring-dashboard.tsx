@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, startTransition, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Trophy,
   Award,
@@ -16,18 +18,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { SessionUser } from "@/features/access-control/types";
 import {
-  upsertParticipationRecord,
   toggleTopBoardExclusion,
   listVolunteers,
-  listParticipationRecords,
   listDetailedReviews,
+  getVolunteerActiveEventRole,
+  listAllActiveEvents,
 } from "../server/actions";
 import type {
   PointLedgerEntry,
   GradeRequest,
-  ParticipationRecord,
   GradeAuditEntry,
 } from "../types";
+
+const ROLE_POINT_RANGES: Record<string, { min: number; max: number; base: number }> = {
+  Chair: { min: 60, max: 70, base: 60 },
+  "Vice Chair": { min: 40, max: 50, base: 40 },
+  "Committee Lead": { min: 25, max: 35, base: 25 },
+  "Committee Member": { min: 10, max: 20, base: 10 },
+};
 
 interface VolunteerOption {
   id: string;
@@ -183,17 +191,46 @@ export function ScoringDashboard({
   user: SessionUser;
   userRole?: "Admin" | "Chairperson" | "Member";
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const qEventId = searchParams.get("eventId");
+  const qRole = searchParams.get("role");
   const [activeTab, setActiveTab] = useState<string>("leaderboard");
 
   const [leaderboard, setLeaderboard] = useState<
     { userId: string; name: string; points: number }[]
   >([]);
   const [ledger, setLedger] = useState<PointLedgerEntry[]>([]);
+
+  // Selection states for Admin
+  const [allEvents, setAllEvents] = useState<{ eventId: string; eventTitle: string }[]>([]);
+  const [adminSelEvent, setAdminSelEvent] = useState("");
+  const [adminSelRole, setAdminSelRole] = useState<"Admin" | "Chairperson" | "Member">("Admin");
+  const [customEventId, setCustomEventId] = useState("");
+  const [showCustomEvent, setShowCustomEvent] = useState(false);
+
+  useEffect(() => {
+    if (user.isAdmin) {
+      async function fetchEvents() {
+        try {
+          const events = await listAllActiveEvents();
+          setAllEvents(events);
+          if (events.length > 0) {
+            setAdminSelEvent(events[0].eventId);
+          } else {
+            setShowCustomEvent(true);
+          }
+        } catch {}
+      }
+      fetchEvents();
+    }
+  }, [user.isAdmin]);
   const [gradeRequests, setGradeRequests] = useState<GradeRequest[]>([]);
 
   // Derived role
   const derivedRole =
     userRole ||
+    qRole ||
     (user.isAdmin
       ? "Admin"
       : user.eventRoles.some((r) => r.active && r.role === "Chair")
@@ -216,7 +253,6 @@ export function ScoringDashboard({
           { id: "grade-requests", label: "Grade Requests", icon: BookOpen },
           { id: "grade-reviews", label: "Grade Reviews", icon: BookOpen },
           { id: "finalize-grades", label: "Finalize Grades", icon: BookOpen },
-          { id: "participation", label: "Participation Tracking", icon: CalendarCheck2 },
           { id: "admin-tools", label: "Admin Tools", icon: Sliders },
         ];
       case "Chairperson":
@@ -224,14 +260,12 @@ export function ScoringDashboard({
           { id: "leaderboard", label: "Leaderboard", icon: Trophy },
           { id: "point-ledger", label: "Point Ledger", icon: Award },
           { id: "grade-requests", label: "Grade Requests", icon: BookOpen },
-          { id: "participation", label: "Participation Tracking", icon: CalendarCheck2 },
         ];
       case "Member":
       default:
         return [
           { id: "leaderboard", label: "Leaderboard", icon: Trophy },
           { id: "point-ledger", label: "Point Ledger", icon: Award },
-          { id: "participation", label: "My Participation", icon: CalendarCheck2 },
         ];
     }
   })();
@@ -250,23 +284,44 @@ export function ScoringDashboard({
   const [detailedReviews, setDetailedReviews] = useState<DetailedGradeReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
 
-  // Scoped participation records
-  const [participationRecords, setParticipationRecords] = useState<ParticipationRecord[]>([]);
-
   // Filters for Leaderboard
   const [filterTerm, setFilterTerm] = useState("2026");
   const [filterYear, setFilterYear] = useState("2026");
   const [filterMonth, setFilterMonth] = useState("");
 
-  // Form states
-  const [partUserId, setPartUserId] = useState("");
-  const [partEventId, setPartEventId] = useState("");
-  const [partRole, setPartRole] = useState("Committee Member");
-  const [partStatus, setPartStatus] = useState<"attended" | "absent" | "excused">("attended");
-
-  const [reqEventId, setReqEventId] = useState("");
+  const [reqEventId, setReqEventId] = useState(qEventId || "");
   const [reqTargetUserId, setReqTargetUserId] = useState("");
-  const [reqGradeValue, setReqGradeValue] = useState(5);
+  const [reqGradeValue, setReqGradeValue] = useState(10);
+  const [gradingRole, setGradingRole] = useState("Committee Member");
+
+  useEffect(() => {
+    if (qEventId) {
+      setReqEventId(qEventId);
+    }
+  }, [qEventId]);
+
+  useEffect(() => {
+    async function autoFetchRole() {
+      if (reqTargetUserId && reqEventId) {
+        try {
+          const activeRole = await getVolunteerActiveEventRole(reqTargetUserId, reqEventId);
+          if (activeRole) {
+            setGradingRole(activeRole);
+          }
+        } catch {}
+      }
+    }
+    autoFetchRole();
+  }, [reqTargetUserId, reqEventId]);
+
+  useEffect(() => {
+    const range = ROLE_POINT_RANGES[gradingRole];
+    if (range) {
+      if (reqGradeValue < range.min || reqGradeValue > range.max) {
+        setReqGradeValue(range.min);
+      }
+    }
+  }, [gradingRole]);
 
   const [revRequestId, setRevRequestId] = useState("");
   const [revGradeValue, setRevGradeValue] = useState(5);
@@ -291,7 +346,7 @@ export function ScoringDashboard({
       setVolunteersLoading(true);
       setVolunteersError(null);
       try {
-        const list = await listVolunteers();
+        const list = await listVolunteers(qEventId || undefined);
         setVolunteers(list);
       } catch (err) {
         setVolunteersError(err instanceof Error ? err.message : "Failed to fetch volunteers list.");
@@ -300,7 +355,7 @@ export function ScoringDashboard({
       }
     }
     loadVolunteers();
-  }, []);
+  }, [qEventId]);
 
   // Fetch leaderboard
   const fetchLeaderboard = async () => {
@@ -370,20 +425,6 @@ export function ScoringDashboard({
     }
   };
 
-  // Fetch scoped participation records
-  const fetchParticipationRecords = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const records = await listParticipationRecords();
-      setParticipationRecords(records);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load participation records.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     const loadData = async () => {
       if (currentTab === "leaderboard") {
@@ -395,8 +436,6 @@ export function ScoringDashboard({
         await fetchGradeRequests();
       } else if (currentTab === "grade-reviews") {
         await fetchDetailedReviews();
-      } else if (currentTab === "participation") {
-        await fetchParticipationRecords();
       }
     };
     const timer = setTimeout(() => {
@@ -431,6 +470,164 @@ export function ScoringDashboard({
 
 
 
+  const hasSelected = !!qEventId && !!qRole;
+
+  if (!hasSelected) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6 py-6">
+        <Card className="border-border bg-surface shadow-sm">
+          <CardHeader className="text-center">
+            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-primary-soft text-primary mb-4">
+              <Trophy className="size-6" />
+            </span>
+            <CardTitle className="text-2xl font-bold">Select Event & View Mode</CardTitle>
+            <CardDescription className="text-sm">
+              Please select the event responsibility and role you want to view the scoring dashboard as.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {user.isAdmin ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const targetEvent = showCustomEvent ? customEventId : adminSelEvent;
+                  if (targetEvent) {
+                    router.push(`/scoring?eventId=${encodeURIComponent(targetEvent)}&role=${encodeURIComponent(adminSelRole)}`);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="bg-surface-muted p-4 rounded-lg border border-border/50 text-xs text-text-secondary space-y-1">
+                  <span className="font-semibold text-text-primary uppercase block mb-1">Administrator Access</span>
+                  You have full privileges. You can view scoring for any event and simulate roles.
+                </div>
+
+                {!showCustomEvent && allEvents.length > 0 ? (
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                      Choose Active Event
+                    </label>
+                    <select
+                      value={adminSelEvent}
+                      onChange={(e) => setAdminSelEvent(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                    >
+                      {allEvents.map((ev) => (
+                        <option key={ev.eventId} value={ev.eventId}>
+                          {ev.eventTitle} ({ev.eventId})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomEvent(true)}
+                      className="text-xs text-primary underline mt-1 block"
+                    >
+                      Or enter custom Event ID manually
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                      Event ID / Reference
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Open Week"
+                      value={customEventId}
+                      onChange={(e) => setCustomEventId(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                    />
+                    {!showCustomEvent && allEvents.length === 0 && (
+                      <span className="text-[10px] text-text-muted mt-1 block">
+                        No active event role assignments found in database. Please enter Event ID manually.
+                      </span>
+                    )}
+                    {allEvents.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomEvent(false)}
+                        className="text-xs text-primary underline mt-1 block"
+                      >
+                        Switch back to active events list
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                    Select Role / View Mode
+                  </label>
+                  <select
+                    value={adminSelRole}
+                    onChange={(e) => setAdminSelRole(e.target.value as "Admin" | "Chairperson" | "Member")}
+                    className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                  >
+                    <option value="Admin">Admin</option>
+                    <option value="Chairperson">Chairperson (Chair)</option>
+                    <option value="Member">Member (Volunteer)</option>
+                  </select>
+                </div>
+
+                <Button type="submit" className="w-full">
+                  Access Dashboard
+                </Button>
+              </form>
+            ) : user.eventRoles && user.eventRoles.filter((r) => r.active).length > 0 ? (
+              <div className="space-y-3">
+                <span className="block text-xs font-semibold uppercase text-text-secondary mb-1">
+                  Your Event Responsibilities
+                </span>
+                <div className="grid gap-3">
+                  {user.eventRoles
+                    .filter((r) => r.active)
+                    .map((assignment) => {
+                      const displayRole = assignment.role === "Chair" ? "Chairperson" : "Member";
+                      return (
+                        <button
+                          key={assignment.$id}
+                          onClick={() => {
+                            router.push(`/scoring?eventId=${encodeURIComponent(assignment.eventId)}&role=${encodeURIComponent(displayRole)}`);
+                          }}
+                          className="flex items-center justify-between p-4 border border-border hover:border-primary/50 hover:bg-primary-soft/5 rounded-lg text-left transition-all group animate-fade-in"
+                        >
+                          <div>
+                            <span className="font-semibold text-text-primary group-hover:text-primary transition-colors">
+                              {assignment.eventTitle}
+                            </span>
+                            <span className="text-xs text-text-muted block mt-0.5">
+                              ID: {assignment.eventId}
+                            </span>
+                          </div>
+                          <Badge tone={assignment.role === "Chair" ? "warning" : "neutral"}>
+                            {assignment.role}
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 space-y-4">
+                <p className="text-sm text-text-secondary">
+                  No active event responsibilities are currently assigned to this account.
+                </p>
+                <div className="bg-surface-muted p-4 rounded-lg border border-border/50 text-xs text-text-secondary">
+                  Please ask an administrator to assign a responsibility in Access Control.
+                </div>
+                <Link href="/dashboard" className="text-xs text-primary hover:underline block">
+                  Back to Access Overview
+                </Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Dashboard Header with Role Badge */}
@@ -440,6 +637,17 @@ export function ScoringDashboard({
           <Badge tone={derivedRole === "Admin" ? "primary" : derivedRole === "Chairperson" ? "warning" : "neutral"}>
             {derivedRole}
           </Badge>
+          {qEventId && (
+            <Badge tone="neutral">
+              Event: {qEventId}
+            </Badge>
+          )}
+          <Link
+            href="/scoring"
+            className="text-xs text-primary hover:underline ml-2 flex items-center gap-1 font-medium border-l border-border pl-3"
+          >
+            Switch Event/Role
+          </Link>
         </div>
         <div className="text-xs text-text-secondary">
           Logged in as: <span className="font-semibold">{user.authUser.name}</span> ({user.authUser.email})
@@ -495,13 +703,20 @@ export function ScoringDashboard({
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="Term (e.g. 2026)"
+                <select
                   value={filterTerm}
                   onChange={(e) => setFilterTerm(e.target.value)}
-                  className="px-3 py-1.5 border border-border rounded-md text-sm w-32 bg-surface"
-                />
+                  className="px-3 py-1.5 border border-border rounded-md text-sm w-36 bg-surface"
+                >
+                  <option value="2025">2025</option>
+                  <option value="2025/2026">2025/2026</option>
+                  <option value="2026">2026</option>
+                  <option value="2026/2027">2026/2027</option>
+                  <option value="2027">2027</option>
+                  <option value="2027/2028">2027/2028</option>
+                  <option value="2028">2028</option>
+                  <option value="2028/2029">2028/2029</option>
+                </select>
                 <input
                   type="number"
                   placeholder="Year (e.g. 2026)"
@@ -676,7 +891,7 @@ export function ScoringDashboard({
 
       {currentTab === "grade-requests" && (
         <div className="space-y-6">
-          {derivedRole === "Admin" && (
+          {(derivedRole === "Admin" || derivedRole === "Chairperson") && (
             <Card>
               <CardHeader>
                 <CardTitle>Submit Grade Request</CardTitle>
@@ -718,10 +933,11 @@ export function ScoringDashboard({
                     <input
                       type="text"
                       required
+                      disabled={derivedRole === "Chairperson" && !!qEventId}
                       value={reqEventId}
                       onChange={(e) => setReqEventId(e.target.value)}
                       placeholder="e.g. MoraForesight 4.0"
-                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
+                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface disabled:opacity-75 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div>
@@ -731,7 +947,7 @@ export function ScoringDashboard({
                     <VolunteerSelect
                       value={reqTargetUserId}
                       onChange={(val) => setReqTargetUserId(val)}
-                      volunteers={volunteers}
+                      volunteers={volunteers.filter((v) => v.id !== user.authUser.id)}
                       loading={volunteersLoading}
                       error={volunteersError}
                     />
@@ -739,17 +955,20 @@ export function ScoringDashboard({
                   <div className="flex gap-2 items-center">
                     <div className="flex-1">
                       <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                        Grade Value (0-10)
+                        Points ({gradingRole})
                       </label>
                       <input
                         type="number"
-                        min="0"
-                        max="10"
+                        min={ROLE_POINT_RANGES[gradingRole]?.min ?? 10}
+                        max={ROLE_POINT_RANGES[gradingRole]?.max ?? 70}
                         required
                         value={reqGradeValue}
                         onChange={(e) => setReqGradeValue(Number(e.target.value))}
                         className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
                       />
+                      <span className="text-[10px] text-text-muted mt-1 block">
+                        Allowed range: {ROLE_POINT_RANGES[gradingRole]?.min ?? 10} - {ROLE_POINT_RANGES[gradingRole]?.max ?? 70} points
+                      </span>
                     </div>
                     <Button type="submit" className="shrink-0 flex items-center gap-1 mt-5">
                       <Plus className="size-4" /> Submit
@@ -763,12 +982,16 @@ export function ScoringDashboard({
           <Card>
             <CardHeader>
               <CardTitle>
-                {derivedRole === "Admin" ? "All Grading Requests" : "Grading Requests for My Events"}
+                {derivedRole === "Admin"
+                  ? "All Grading Requests"
+                  : qEventId
+                  ? `Grading Requests for ${qEventId}`
+                  : "Grading Requests for My Events"}
               </CardTitle>
               <CardDescription>
                 {derivedRole === "Admin"
                   ? "Manage and inspect the status of all active volunteer grading workflows."
-                  : "Read-only list of grading requests for events you chair."}
+                  : "List of grading requests for events you chair."}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -778,8 +1001,13 @@ export function ScoringDashboard({
                   .map((r) => r.eventId);
 
                 const visibleRequests = derivedRole === "Admin"
-                  ? gradeRequests
-                  : gradeRequests.filter((req) => chairEventIds.includes(req.eventId));
+                  ? (qEventId ? gradeRequests.filter(req => req.eventId === qEventId) : gradeRequests)
+                  : gradeRequests.filter((req) => {
+                      if (qEventId) {
+                        return req.eventId === qEventId;
+                      }
+                      return chairEventIds.includes(req.eventId);
+                    });
 
                 if (visibleRequests.length > 0) {
                   return (
@@ -1088,172 +1316,7 @@ export function ScoringDashboard({
         </Card>
       )}
 
-      {currentTab === "participation" && (
-        <div className="space-y-6">
-          {derivedRole !== "Member" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Manage Participation Records</CardTitle>
-                <CardDescription>
-                  Assign volunteer participation status and role for your event.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    setError(null);
-                    setSuccess(null);
-                    try {
-                      await upsertParticipationRecord({
-                        userId: partUserId,
-                        eventId: partEventId,
-                        role: partRole,
-                        status: partStatus,
-                      });
-                      setSuccess("Participation record recorded successfully!");
-                      setPartUserId("");
-                      setPartEventId("");
-                      fetchParticipationRecords();
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : "Failed to upsert participation.");
-                    }
-                  }}
-                  className="space-y-4 max-w-md"
-                >
-                  <div>
-                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                      Volunteer User
-                    </label>
-                    <VolunteerSelect
-                      value={partUserId}
-                      onChange={(val) => setPartUserId(val)}
-                      volunteers={volunteers}
-                      loading={volunteersLoading}
-                      error={volunteersError}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                      Event Reference / ID
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={partEventId}
-                      onChange={(e) => setPartEventId(e.target.value)}
-                      placeholder="e.g. MoraForesight 4.0"
-                      className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                        Role In Event
-                      </label>
-                      <select
-                        value={partRole}
-                        onChange={(e) => setPartRole(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                      >
-                        <option value="Chair">Chair</option>
-                        <option value="Vice Chair">Vice Chair</option>
-                        <option value="Committee Lead">Committee Lead</option>
-                        <option value="Committee Member">Committee Member</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
-                        Status
-                      </label>
-                      <select
-                        value={partStatus}
-                        onChange={(e) =>
-                          setPartStatus(e.target.value as "attended" | "absent" | "excused")
-                        }
-                        className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                      >
-                        <option value="attended">Attended</option>
-                        <option value="absent">Absent</option>
-                        <option value="excused">Excused</option>
-                      </select>
-                    </div>
-                  </div>
-                  <Button type="submit" className="w-full">
-                    Upsert Record
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {derivedRole === "Admin"
-                  ? "Volunteer Participation Records"
-                  : derivedRole === "Chairperson"
-                  ? "Event Participation Tracking"
-                  : "My Event Participation"}
-              </CardTitle>
-              <CardDescription>
-                {derivedRole === "Admin"
-                  ? "All volunteer participation records recorded on the platform."
-                  : derivedRole === "Chairperson"
-                  ? "Participation logs for events you chair and your own records."
-                  : "Status of your event attendance and assigned roles."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {participationRecords.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-border text-left text-sm">
-                    <thead className="text-text-secondary">
-                      <tr>
-                        <th className="py-2 pr-4 font-semibold">Event</th>
-                        <th className="px-4 py-2 font-semibold">Volunteer Name</th>
-                        <th className="px-4 py-2 font-semibold">Role</th>
-                        <th className="px-4 py-2 font-semibold">Status</th>
-                        <th className="px-4 py-2 font-semibold text-right">Last Updated</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {participationRecords.map((record) => {
-                        const volunteerName = volunteers.find((v) => v.id === record.userId)?.name || record.userId;
-                        return (
-                          <tr key={record.$id}>
-                            <td className="py-3 pr-4 font-medium text-text-primary">{record.eventId}</td>
-                            <td className="px-4 py-3 text-text-primary">{volunteerName}</td>
-                            <td className="px-4 py-3 text-text-secondary">{record.role}</td>
-                            <td className="px-4 py-3">
-                              <Badge
-                                tone={
-                                  record.status === "attended"
-                                    ? "success"
-                                    : record.status === "absent"
-                                    ? "warning"
-                                    : "neutral"
-                                }
-                              >
-                                {record.status}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3 text-right text-text-secondary">
-                              {new Date(record.updatedAt).toLocaleDateString()}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-center py-6 text-text-secondary">No participation records found.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {currentTab === "admin-tools" && derivedRole === "Admin" && (
         <div className="grid gap-6 md:grid-cols-2">
@@ -1397,13 +1460,20 @@ export function ScoringDashboard({
                     <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">
                       Term
                     </label>
-                    <input
-                      type="text"
-                      required
+                    <select
                       value={exTerm}
                       onChange={(e) => setExTerm(e.target.value)}
                       className="w-full px-3 py-2 border border-border rounded-md text-sm bg-surface"
-                    />
+                    >
+                      <option value="2025">2025</option>
+                      <option value="2025/2026">2025/2026</option>
+                      <option value="2026">2026</option>
+                      <option value="2026/2027">2026/2027</option>
+                      <option value="2027">2027</option>
+                      <option value="2027/2028">2027/2028</option>
+                      <option value="2028">2028</option>
+                      <option value="2028/2029">2028/2029</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold uppercase text-text-secondary mb-1">

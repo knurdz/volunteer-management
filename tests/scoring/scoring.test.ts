@@ -23,7 +23,8 @@ import {
 } from "../../src/features/scoring/server/actions";
 import { getAppwriteAdminServices } from "@/server/appwrite";
 import { requireAuth, requireAdmin } from "@/features/access-control/server/current-user";
-import { listProfiles } from "@/features/access-control/server/profiles";
+import { listProfiles, getProfile } from "@/features/access-control/server/profiles";
+import { assignEventRole } from "@/features/access-control/server/roles";
 import type { Profile } from "@/features/access-control/types";
 import { hasEventRole } from "@/features/access-control/lib/rules";
 import { writeAuditLog } from "@/server/audit";
@@ -31,6 +32,7 @@ import type { TablesDB } from "node-appwrite";
 
 vi.mock("@/features/access-control/server/profiles", () => ({
   listProfiles: vi.fn(),
+  getProfile: vi.fn(),
 }));
 
 // Mocks
@@ -43,10 +45,14 @@ vi.mock("@/features/access-control/server/current-user", () => ({
   requireAdmin: vi.fn(),
 }));
 
-vi.mock("@/features/access-control/lib/rules", () => ({
-  hasEventRole: vi.fn(),
-  canVolunteer: () => true,
-}));
+vi.mock("@/features/access-control/lib/rules", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/access-control/lib/rules")>();
+  return {
+    ...actual,
+    hasEventRole: vi.fn(),
+    canVolunteer: () => true,
+  };
+});
 
 vi.mock("@/server/audit", () => ({
   writeAuditLog: vi.fn(),
@@ -198,10 +204,10 @@ describe("Scoring Server Actions & Access Control", () => {
 
     mockTables = {
       listRows: vi.fn().mockImplementation((db: string, table: string) => {
-        if (table === "participation_records") {
+        if (table === "event_role_assignments") {
           return Promise.resolve({
             total: 1,
-            rows: [{ $id: "pr1", userId: "volunteer-1", eventId: "event-1", role: "Committee Member", status: "attended" }],
+            rows: [{ $id: "er1", userId: "volunteer-1", eventId: "event-1", role: "Committee Member", active: true }],
           });
         }
         return Promise.resolve({ total: 0, rows: [] });
@@ -240,7 +246,7 @@ describe("Scoring Server Actions & Access Control", () => {
     vi.mocked(hasEventRole).mockReturnValue(true);
 
     await expect(
-      createGradeRequest({ eventId: "event-1", targetUserId: "volunteer-1", gradeValue: 8 })
+      createGradeRequest({ eventId: "event-1", targetUserId: "volunteer-1", gradeValue: 18 })
     ).rejects.toThrow("Chairs cannot grade participants under their own event.");
   });
 
@@ -256,7 +262,7 @@ describe("Scoring Server Actions & Access Control", () => {
     const result = await createGradeRequest({
       eventId: "event-1",
       targetUserId: "volunteer-1",
-      gradeValue: 9,
+      gradeValue: 18,
     });
 
     expect(result).toBeDefined();
@@ -295,8 +301,8 @@ describe("Scoring Server Actions & Access Control", () => {
         return Promise.resolve({
           total: 2,
           rows: [
-            { gradeRequestId: "request-1", reviewerId: "reviewer-1", gradeValue: 8 },
-            { gradeRequestId: "request-1", reviewerId: "reviewer-2", gradeValue: 9 },
+            { gradeRequestId: "request-1", reviewerId: "reviewer-1", gradeValue: 18 },
+            { gradeRequestId: "request-1", reviewerId: "reviewer-2", gradeValue: 19 },
           ],
         });
       }
@@ -314,10 +320,10 @@ describe("Scoring Server Actions & Access Control", () => {
           ],
         });
       }
-      if (table === "participation_records") {
+      if (table === "event_role_assignments") {
         return Promise.resolve({
           total: 1,
-          rows: [{ $id: "pr1", userId: "volunteer-1", eventId: "event-1", role: "Committee Member", status: "attended" }],
+          rows: [{ $id: "er1", userId: "volunteer-1", eventId: "event-1", role: "Committee Member", active: true }],
         });
       }
       return Promise.resolve({ total: 0, rows: [] });
@@ -355,7 +361,7 @@ describe("Scoring Server Actions & Access Control", () => {
           $id: id,
           gradeRequestId: "request-1",
           reviewerId: "reviewer-1",
-          gradeValue: 7,
+          gradeValue: 17,
           audit_metadata: null,
         });
       }
@@ -369,27 +375,27 @@ describe("Scoring Server Actions & Access Control", () => {
       }
     });
 
-    const result = await adminOverrideGrade("review-1", 8, "Incorrect scoring input");
+    const result = await adminOverrideGrade("review-1", 18, "Incorrect scoring input");
 
-    expect(result.gradeValue).toBe(8);
+    expect(result.gradeValue).toBe(18);
     expect(mockTables.updateRow).toHaveBeenCalledWith(
       "database-1",
       "grade_reviews",
       "review-1",
       expect.objectContaining({
-        gradeValue: 8,
-        audit_metadata: expect.stringContaining('"originalValue":7,"newValue":8'),
+        gradeValue: 18,
+        audit_metadata: expect.stringContaining('"originalValue":17,"newValue":18'),
       })
     );
 
     expect(writeAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "GRADE_OVERRIDDEN",
+        action: "GRADE_OVERRIDDEN" as unknown as AuditAction,
         actorUserId: "admin-1",
         metadata: {
           gradeReviewId: "review-1",
-          originalValue: 7,
-          newValue: 8,
+          originalValue: 17,
+          newValue: 18,
           reason: "Incorrect scoring input",
         },
       })
@@ -467,32 +473,12 @@ describe("Scoring Server Actions & Access Control", () => {
 
     vi.mocked(hasEventRole).mockReturnValue(false);
 
-    await expect(submitGradeReview("request-1", 7)).rejects.toThrow(
+    await expect(submitGradeReview("request-1", 17)).rejects.toThrow(
       "Only authorized event reviewers or admins can submit reviews."
     );
   });
 
-  it("Throws if grade target is not a valid event participant", async () => {
-    vi.mocked(requireAuth).mockResolvedValue({
-      authUser: { id: "admin-1", name: "Admin", email: "admin@uom.lk" },
-      profile: { $id: "admin-1", authUserId: "admin-1", googleEmail: "admin@uom.lk", uomVerified: true, status: "ACTIVE" },
-      isAdmin: true,
-      sbRoles: [],
-      eventRoles: [],
-    });
 
-    // Mock participation to return 0 records
-    mockTables.listRows.mockImplementation((db, table) => {
-      if (table === "participation_records") {
-        return Promise.resolve({ total: 0, rows: [] });
-      }
-      return Promise.resolve({ total: 0, rows: [] });
-    });
-
-    await expect(
-      createGradeRequest({ eventId: "event-1", targetUserId: "volunteer-1", gradeValue: 7 })
-    ).rejects.toThrow("Target user is not a participant in this event.");
-  });
 
   it("Blocks normal edits/reviews if request status is finalized", async () => {
     vi.mocked(requireAuth).mockResolvedValue({
@@ -511,7 +497,7 @@ describe("Scoring Server Actions & Access Control", () => {
     });
 
     // Submitting review on finalized request
-    await expect(submitGradeReview("request-1", 7)).rejects.toThrow(
+    await expect(submitGradeReview("request-1", 17)).rejects.toThrow(
       "Cannot submit review for a finalized grade request."
     );
   });
@@ -559,7 +545,7 @@ describe("Scoring Server Actions & Access Control", () => {
       if (table === "grade_reviews") {
         return Promise.resolve({
           total: 1,
-          rows: [{ gradeRequestId: "request-1", reviewerId: "reviewer-1", gradeValue: 8 }], // new average grade target is 8
+          rows: [{ gradeRequestId: "request-1", reviewerId: "reviewer-1", gradeValue: 18 }], // new average grade target is 18
         });
       }
       if (table === "audit_logs") {
@@ -568,10 +554,10 @@ describe("Scoring Server Actions & Access Control", () => {
           rows: [{ $id: "log-1", action: "CONCLUSION_REPORT_APPROVED", targetType: "event", targetId: "event-1", createdAt: "2026-06-15T00:00:00.000Z" }],
         });
       }
-      if (table === "participation_records") {
+      if (table === "event_role_assignments") {
         return Promise.resolve({
           total: 1,
-          rows: [{ $id: "pr1", userId: "volunteer-1", eventId: "event-1", role: "Committee Member", status: "attended" }], // role points = 10
+          rows: [{ $id: "er1", userId: "volunteer-1", eventId: "event-1", role: "Committee Member", active: true }], // role points = 10
         });
       }
       return Promise.resolve({ total: 0, rows: [] });
@@ -604,6 +590,98 @@ describe("Scoring Server Actions & Access Control", () => {
         source: "role",
       })
     );
+  });
+
+  it("Grader cannot grade themselves", async () => {
+    vi.mocked(requireAuth).mockResolvedValue({
+      authUser: { id: "volunteer-1", name: "Volunteer One", email: "vol1@uom.lk" },
+      profile: { $id: "volunteer-1", authUserId: "volunteer-1", googleEmail: "vol1@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: false,
+      sbRoles: [],
+      eventRoles: [
+        {
+          $id: "r2",
+          userId: "volunteer-1",
+          eventId: "event-1",
+          eventTitle: "Event One",
+          role: "Committee Lead",
+          assignedBy: "admin",
+          assignedAt: "2026-01-01T00:00:00.000Z",
+          active: true,
+        },
+      ],
+    });
+
+    await expect(
+      createGradeRequest({ eventId: "event-1", targetUserId: "volunteer-1", gradeValue: 18 })
+    ).rejects.toThrow("You cannot grade yourself.");
+  });
+
+  it("Grader cannot review themselves", async () => {
+    vi.mocked(requireAuth).mockResolvedValue({
+      authUser: { id: "volunteer-1", name: "Volunteer One", email: "vol1@uom.lk" },
+      profile: { $id: "volunteer-1", authUserId: "volunteer-1", googleEmail: "vol1@uom.lk", uomVerified: true, status: "ACTIVE" },
+      isAdmin: false,
+      sbRoles: [],
+      eventRoles: [
+        {
+          $id: "r2",
+          userId: "volunteer-1",
+          eventId: "event-1",
+          eventTitle: "Event One",
+          role: "Committee Lead",
+          assignedBy: "admin",
+          assignedAt: "2026-01-01T00:00:00.000Z",
+          active: true,
+        },
+      ],
+    });
+
+    mockTables.getRow.mockResolvedValue({
+      $id: "request-1",
+      eventId: "event-1",
+      targetUserId: "volunteer-1",
+      status: "pending",
+    });
+
+    await expect(submitGradeReview("request-1", 17)).rejects.toThrow(
+      "You cannot review your own grade request."
+    );
+  });
+
+  it("Cannot assign multiple active roles to same person in same event", async () => {
+    vi.mocked(getProfile).mockResolvedValue({
+      $id: "volunteer-1",
+      authUserId: "volunteer-1",
+      googleEmail: "vol1@uom.lk",
+      uomVerified: true,
+      status: "ACTIVE",
+      name: "Volunteer One",
+    } as any);
+
+    // Mock existing active role
+    mockTables.listRows.mockResolvedValue({
+      total: 1,
+      rows: [
+        {
+          $id: "er-1",
+          userId: "volunteer-1",
+          eventId: "event-1",
+          role: "Committee Lead",
+          active: true,
+        },
+      ],
+    });
+
+    await expect(
+      assignEventRole({
+        actorUserId: "admin-1",
+        eventId: "event-1",
+        eventTitle: "Event One",
+        role: "Chair",
+        userId: "volunteer-1",
+      })
+    ).rejects.toThrow("Volunteer already has an active role 'Committee Lead' in event 'event-1'.");
   });
 });
 

@@ -8,6 +8,7 @@ import { getAppwriteAdminServices } from "@/server/appwrite";
 import { writeAuditLog } from "@/server/audit";
 import { requireAuth, requireAdmin } from "@/features/access-control/server/current-user";
 import { listProfiles } from "@/features/access-control/server/profiles";
+import { listActiveEventRoleAssignments } from "@/features/access-control/server/roles";
 import { hasEventRole } from "@/features/access-control/lib/rules";
 import { ROLE_BASE_POINTS } from "@/lib/config";
 import { getServerEnv } from "@/lib/env";
@@ -39,6 +40,16 @@ import type {
   TermScoringConfig,
   GradeAuditEntry,
 } from "../types";
+
+const ROLE_POINT_RANGES: Record<
+  string,
+  { min: number; max: number; base: number }
+> = {
+  Chair: { min: 60, max: 70, base: 60 },
+  "Vice Chair": { min: 40, max: 50, base: 40 },
+  "Committee Lead": { min: 25, max: 35, base: 25 },
+  "Committee Member": { min: 10, max: 20, base: 10 },
+};
 
 /**
  * Upserts a volunteer's participation record for an event.
@@ -117,6 +128,10 @@ export async function createGradeRequest(data: {
 
   const validated = GradeRequestSchema.parse(data);
 
+  if (graderId === validated.targetUserId) {
+    throw new Error("You cannot grade yourself.");
+  }
+
   if (!user.isAdmin) {
     const isLead = hasEventRole(user, validated.eventId, ["Chair", "Vice Chair", "Committee Lead"]);
     if (!isLead) {
@@ -132,20 +147,33 @@ export async function createGradeRequest(data: {
     }
   }
 
-  // Verify target is a participant of the event
-  const participationResult = await tables.listRows(
+  // Verify target has an active role in this event
+  const eventRoleResult = await tables.listRows(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.participationRecords,
+    APPWRITE_TABLES.eventRoleAssignments,
     [
       Query.equal("userId", validated.targetUserId),
       Query.equal("eventId", validated.eventId),
+      Query.equal("active", true),
       Query.limit(1),
     ]
   );
 
-  if (participationResult.total === 0) {
-    throw new Error("Target user is not a participant in this event.");
+  if (eventRoleResult.total === 0) {
+    throw new Error("Target volunteer does not have an active responsibility assigned for this event.");
   }
+
+  const role = eventRoleResult.rows[0].role;
+  const range = ROLE_POINT_RANGES[role];
+  if (!range) {
+    throw new Error(`Invalid event role: ${role}`);
+  }
+
+  if (validated.gradeValue < range.min || validated.gradeValue > range.max) {
+    throw new Error(`Grade value for role '${role}' must be between ${range.min} and ${range.max}.`);
+  }
+
+
 
   const requestId = `gr_${createHash("sha1").update(`${validated.eventId}:${validated.targetUserId}`).digest("hex").slice(0, 30)}`;
   const now = new Date().toISOString();
@@ -267,13 +295,17 @@ export async function submitGradeReview(gradeRequestId: string, gradeValue: numb
   const graderId = user.authUser.id;
 
   z.string().min(1).parse(gradeRequestId);
-  z.number().int().min(0).max(10).parse(gradeValue);
+  z.number().int().min(10).max(70).parse(gradeValue);
 
   const gradeRequest = (await tables.getRow(
     env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
     APPWRITE_TABLES.gradeRequests,
     gradeRequestId
   )) as unknown as GradeRequest;
+
+  if (graderId === gradeRequest.targetUserId) {
+    throw new Error("You cannot review your own grade request.");
+  }
 
   if (gradeRequest.status === "finalized") {
     throw new Error("Cannot submit review for a finalized grade request.");
@@ -284,6 +316,28 @@ export async function submitGradeReview(gradeRequestId: string, gradeValue: numb
     if (!hasRole) {
       throw new Error("Only authorized event reviewers or admins can submit reviews.");
     }
+  }
+
+  // Verify target role in event
+  const eventRoleResult = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.eventRoleAssignments,
+    [
+      Query.equal("userId", gradeRequest.targetUserId),
+      Query.equal("eventId", gradeRequest.eventId),
+      Query.equal("active", true),
+      Query.limit(1),
+    ]
+  );
+
+  if (eventRoleResult.total === 0) {
+    throw new Error("Target volunteer does not have an active responsibility assigned for this event.");
+  }
+
+  const role = eventRoleResult.rows[0].role;
+  const range = ROLE_POINT_RANGES[role];
+  if (!range || gradeValue < range.min || gradeValue > range.max) {
+    throw new Error(`Grade value for role '${role}' must be between ${range.min} and ${range.max}.`);
   }
 
   const reviewId = `rev_${createHash("sha1").update(`${gradeRequestId}:${graderId}`).digest("hex").slice(0, 28)}`;
@@ -364,22 +418,23 @@ async function recalculateLedgerEntries(
     .filter((r) => r.source === "role")
     .reduce((acc, r) => acc + Number(r.points), 0);
 
-  const targetGradePoints = averageGrade;
-
-  // Create role point entry (lookup participation record)
-  const participation = await tables.listRows(
+  // Create role point entry (lookup active event role assignment)
+  const eventRoleResult = await tables.listRows(
     databaseId,
-    APPWRITE_TABLES.participationRecords,
+    APPWRITE_TABLES.eventRoleAssignments,
     [
       Query.equal("userId", gradeRequest.targetUserId),
       Query.equal("eventId", gradeRequest.eventId),
+      Query.equal("active", true),
       Query.limit(1),
     ]
   );
 
-  const role = participation.total > 0 ? participation.rows[0].role : null;
+  const role = eventRoleResult.total > 0 ? eventRoleResult.rows[0].role : null;
   const rolePoints = role ? (ROLE_BASE_POINTS[role as keyof typeof ROLE_BASE_POINTS] ?? 0) : 0;
   const targetRolePoints = rolePoints;
+
+  const targetGradePoints = averageGrade - rolePoints;
 
   // Append grade adjustment if there is a difference
   const gradeDiff = targetGradePoints - currentGradePoints;
@@ -522,6 +577,34 @@ export async function adminOverrideGrade(
     validated.gradeReviewId
   )) as unknown as GradeReview;
 
+  const gradeRequest = (await tables.getRow(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.gradeRequests,
+    review.gradeRequestId
+  )) as unknown as GradeRequest;
+
+  // Verify target role in event
+  const eventRoleResult = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.eventRoleAssignments,
+    [
+      Query.equal("userId", gradeRequest.targetUserId),
+      Query.equal("eventId", gradeRequest.eventId),
+      Query.equal("active", true),
+      Query.limit(1),
+    ]
+  );
+
+  if (eventRoleResult.total === 0) {
+    throw new Error("Target volunteer does not have an active responsibility assigned for this event.");
+  }
+
+  const role = eventRoleResult.rows[0].role;
+  const range = ROLE_POINT_RANGES[role];
+  if (!range || validated.newGradeValue < range.min || validated.newGradeValue > range.max) {
+    throw new Error(`Grade value for role '${role}' must be between ${range.min} and ${range.max}.`);
+  }
+
   const originalValue = review.gradeValue;
   const now = new Date().toISOString();
 
@@ -572,12 +655,6 @@ export async function adminOverrideGrade(
   });
 
   // Recalculate average grade and update point ledger if finalized
-  const gradeRequest = (await tables.getRow(
-    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
-    APPWRITE_TABLES.gradeRequests,
-    review.gradeRequestId
-  )) as unknown as GradeRequest;
-
   if (gradeRequest.status === "finalized") {
     const reviewsResult = await tables.listRows(
       env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
@@ -790,13 +867,56 @@ export async function getLeaderboard(params: {
 /**
  * Lists all volunteer profiles as simple ID and name pairs for dropdown selection.
  */
-export async function listVolunteers() {
+export async function listVolunteers(eventId?: string) {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
   await requireAuth();
+
+  if (eventId) {
+    const assignments = await tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.eventRoleAssignments,
+      [Query.equal("eventId", eventId), Query.equal("active", true), Query.limit(500)]
+    );
+    const assignedUserIds = assignments.rows.map((row) => row.userId);
+    if (assignedUserIds.length === 0) {
+      return [];
+    }
+    const profiles = await tables.listRows(
+      env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+      APPWRITE_TABLES.profiles,
+      [Query.equal("$id", assignedUserIds), Query.limit(500)]
+    );
+    return profiles.rows.map((p) => ({
+      id: p.$id,
+      name: p.name || "Unknown Volunteer",
+    }));
+  }
+
   const profiles = await listProfiles();
   return profiles.map((p) => ({
     id: p.$id,
     name: p.name || "Unknown Volunteer",
   }));
+}
+
+export async function getVolunteerActiveEventRole(userId: string, eventId: string) {
+  const env = getServerEnv();
+  const { tables } = getAppwriteAdminServices();
+  await requireAuth();
+
+  const result = await tables.listRows(
+    env.NEXT_PUBLIC_APPWRITE_DATABASE_ID,
+    APPWRITE_TABLES.eventRoleAssignments,
+    [
+      Query.equal("userId", userId),
+      Query.equal("eventId", eventId),
+      Query.equal("active", true),
+      Query.limit(1),
+    ]
+  );
+
+  return result.total > 0 ? result.rows[0].role : null;
 }
 
 /**
@@ -915,4 +1035,15 @@ export async function deleteGradeRequest(gradeRequestId: string) {
     APPWRITE_TABLES.gradeRequests,
     gradeRequestId
   );
+}
+
+export async function listAllActiveEvents() {
+  await requireAuth();
+  const assignments = await listActiveEventRoleAssignments();
+  const events = assignments.map((r) => ({
+    eventId: r.eventId,
+    eventTitle: r.eventTitle || r.eventId,
+  }));
+  const uniqueEvents = Array.from(new Map(events.map((e) => [e.eventId, e])).values());
+  return uniqueEvents;
 }

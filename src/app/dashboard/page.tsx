@@ -189,9 +189,14 @@ export default async function DashboardPage() {
                     {user.eventRoles.map((assignment) => (
                       <tr key={assignment.$id}>
                         <td className="py-3 pr-4">
-                          <p className="font-medium text-text-primary">
+                          <Link
+                            href={`/scoring?eventId=${encodeURIComponent(
+                              assignment.eventId,
+                            )}&role=${assignment.role === "Chair" ? "Chairperson" : "Member"}`}
+                            className="font-medium text-primary hover:underline"
+                          >
                             {assignment.eventTitle}
-                          </p>
+                          </Link>
                           <p className="mt-1 text-xs text-text-muted">
                             {assignment.eventId}
                           </p>

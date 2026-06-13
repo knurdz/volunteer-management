@@ -25,12 +25,12 @@ export const ParticipationRecordSchema = z.object({
 export const GradeRequestSchema = z.object({
   eventId: z.string().min(1),
   targetUserId: z.string().min(1),
-  gradeValue: z.number().int().min(0).max(10),
+  gradeValue: z.number().int().min(10).max(70),
 });
 
 // Admin override schema
 export const AdminGradeOverrideSchema = z.object({
   gradeReviewId: z.string().min(1),
-  newGradeValue: z.number().int().min(0).max(10),
+  newGradeValue: z.number().int().min(10).max(70),
   reason: z.string().optional(),
 });
